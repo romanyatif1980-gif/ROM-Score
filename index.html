@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>🎮 تسجيل السكورات</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; color: #333; }
+    .setup, .game, .wins { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 20px auto; max-width: 900px; }
+    input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+    button { cursor: pointer; font-weight: bold; }
+    .start { background: #4caf50; color: white; }
+    .add { background: #2196f3; color: white; }
+    .end { background: #f44336; color: white; }
+    .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+    .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 150px; text-align: center; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+    .buttons { margin: 20px 0; text-align: center; }
+    .buttons button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; }
+    .modal {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.4); z-index: 9999;
+    }
+    .modal .box {
+      width: 90%; max-width: 700px; background: white; padding: 20px; border-radius: 10px; text-align: right;
+      max-height: 80vh; overflow:auto;
+    }
+    .game-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #eee;}
+  </style>
+</head>
+<body>
+  <h1>🎮 تسجيل السكورات</h1>
+
+  <script>
+    // 👤 اسم اللاعب الثابت لكل جهاز
+    const currentPlayer = "روماني"; // ← غير الاسم ده لكل جهاز لو حبيت
+  </script>
+
+  <div class="setup" id="setup">
+    <h2>⚙️ إعداد الجيم</h2>
+    <label>🎲 اختر اللعبة:</label>
+    <select id="gameSelect">
+      <option>دومينو</option>
+      <option>الطاولة</option>
+      <option>الشطرنج</option>
+      <option>ورق</option>
+    </select>
+
+    <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+    <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+    <button id="showGamesBtnTop" class="add">📋 عرض الجيمات الشغالة</button>
+
+    <hr>
+
+    <h3>👥 اختر اللاعبين:</h3>
+    <div id="playerChoices"></div>
+    <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+    <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+    <br>
+    <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+  </div>
+
+  <div class="game" id="game" style="display:none;">
+    <h2 id="gameName"></h2>
+    <div class="top-players" id="topPlayers"></div>
+    <table id="playersTable">
+      <thead><tr><th>اللاعب</th><th>المجموع</th></tr></thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+
+    <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+    <div class="buttons">
+      <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+      <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+    </div>
+    <table id="roundsTable">
+      <thead id="roundsHead"></thead>
+      <tbody id="roundsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="wins" id="winsTable">
+    <h2>🏆 ترتيب اللاعبين حسب عدد الفوز</h2>
+    <table>
+      <thead><tr><th>اللاعب</th><th>عدد الفوز</th></tr></thead>
+      <tbody id="winsBody"></tbody>
+    </table>
+    <div style="text-align:center; margin-top:12px;">
+      <button id="showGamesBtnBottom" class="add">📋 عرض الجيمات الشغالة</button>
+    </div>
+  </div>
+
+  <div id="gamesModal" class="modal">
+    <div class="box">
+      <h3 style="margin-top:0;">📋 الجيمات الشغالة</h3>
+      <div id="activeGamesList">جاري التحميل...</div>
+      <div style="text-align:left; margin-top:12px;">
+        <button id="closeGamesModal" class="start">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+    import { getDatabase, ref, set, update, get, onValue } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAIwYvgqRsv3hA93C_VR-qzufsiy_OnE4s",
+      authDomain: "rom-score.firebaseapp.com",
+      databaseURL: "https://rom-score-default-rtdb.firebaseio.com",
+      projectId: "rom-score",
+      storageBucket: "rom-score.firebasestorage.app",
+      messagingSenderId: "1009545441375",
+      appId: "1:1009545441375:web:460f2db0c984d24936abea"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+
+    // ========== دوال التعامل مع Firebase ==========
+    async function saveGameData(path, data) { await set(ref(db, path), data); }
+    async function updateGameData(path, data) { await update(ref(db, path), data); }
+    async function getData(path) { const snap = await get(ref(db, path)); return snap.val(); }
+    function listen(path, callback) { onValue(ref(db, path), s => callback(s.val())); }
+
+    // ========== منطق الصفحة ==========
+    let fixedPlayers = ["روماني","عبير","جورج","نرمين","هاني","نيبال","شنوده","هناء"];
+    let players = [], playersWins = [], roundCount = 0, gameEnded = false, editableRound = null;
+    let currentGameName = "", currentInstanceRef = "";
+
+    function renderPlayerChoices() {
+      const c = document.getElementById("playerChoices");
+      c.innerHTML = "";
+      fixedPlayers.forEach(p => {
+        const label = document.createElement("label");
+        const chk = document.createElement("input");
+        chk.type = "checkbox"; chk.value = p;
+        label.appendChild(chk);
+        label.append(" " + p + " ");
+        c.appendChild(label);
+      });
+    }
+
+    function addPlayer() {
+      const name = document.getElementById("newPlayerInput").value.trim();
+      if (name) { fixedPlayers.push(name); renderPlayerChoices(); }
+      document.getElementById("newPlayerInput").value = "";
+    }
+
+    function addGame() {
+      const name = document.getElementById("newGameInput").value.trim();
+      if (name) {
+        const sel = document.getElementById("gameSelect");
+        const opt = document.createElement("option");
+        opt.textContent = name;
+        sel.appendChild(opt);
+        sel.value = name;
+      }
+      document.getElementById("newGameInput").value = "";
+    }
+
+    function startGame() {
+      const g = document.getElementById("gameSelect").value;
+      currentGameName = g;
+      currentInstanceRef = `games/${currentPlayer}/${g}`;
+      document.getElementById("gameName").textContent = "🎲 اللعبة: " + g;
+
+      players = [];
+      document.querySelectorAll("#playerChoices input:checked").forEach(chk => {
+        players.push({ name: chk.value, total: 0, scores: [], wins: 0 });
+        if (!playersWins.find(p => p.name === chk.value)) playersWins.push({ name: chk.value, wins: 0 });
+      });
+      if (players.length < 2) return alert("اختر لاعبين على الأقل!");
+
+      document.getElementById("setup").style.display = "none";
+      document.getElementById("game").style.display = "block";
+
+      renderPlayersTable(); renderRounds(); renderTopPlayers();
+
+      saveGameData(currentInstanceRef, {
+        players, roundCount, gameEnded, playersWins, status: "active", owner: currentPlayer, createdAt: Date.now()
+      });
+
+      listen(currentInstanceRef, (data) => {
+        if (!data) return;
+        players = data.players || players;
+        roundCount = data.roundCount || roundCount;
+        gameEnded = data.gameEnded || false;
+        playersWins = data.playersWins || playersWins;
+        renderPlayersTable(); renderRounds(); renderTopPlayers();
+      });
+    }
+
+    function renderTopPlayers() {
+      const t = document.getElementById("topPlayers");
+      t.innerHTML = "";
+      players.filter(p=>p.total>0).sort((a,b)=>b.total-a.total).forEach(p=>{
+        const div=document.createElement("div");
+        div.className="card"; div.innerHTML=`${p.name}<br>⭐ ${p.total}`;
+        t.appendChild(div);
+      });
+    }
+
+    function renderPlayersTable() {
+      const b = document.getElementById("playersBody");
+      b.innerHTML = "";
+      players.slice().sort((a,b)=>b.total-a.total).forEach(p=>{
+        b.innerHTML += `<tr><td>${p.name}</td><td>${p.total}</td></tr>`;
+      });
+    }
+
+    function renderRounds() {
+      const h = document.getElementById("roundsHead");
+      const b = document.getElementById("roundsBody");
+      h.innerHTML = "<tr><th>الجولة</th>" + players.map(p=>`<th>${p.name}</th>`).join("") + "<th>تعديل</th></tr>";
+      b.innerHTML = "";
+      for(let r=roundCount-1;r>=0;r--){
+        let row = `<tr><td>جولة ${r+1}</td>`;
+        players.forEach((p,i)=> row += `<td><input type='number' value='${p.scores[r]||""}' onchange='updateScore(${i},${r},this.value)'></td>`);
+        row += `<td><button class='edit-small' onclick='editRound(${r})'>✏️</button></td></tr>`;
+        b.innerHTML += row;
+      }
+    }
+
+    window.updateScore = function(i,r,v){
+      players[i].scores[r]=Number(v); players[i].total=players[i].scores.reduce((a,b)=>a+(b||0),0);
+      renderTopPlayers(); renderPlayersTable(); renderRounds();
+      updateGameData(`${currentInstanceRef}/players/${i}`, players[i]);
+    };
+
+    window.editRound = function(r){ editableRound=r; alert("يمكنك تعديل الجولة "+(r+1)); };
+
+    document.getElementById("addRoundBtn").onclick = ()=>{
+      roundCount++; renderRounds();
+      updateGameData(`${currentInstanceRef}/roundCount`, roundCount);
+    };
+
+    document.getElementById("endGameBtn").onclick = ()=>{
+      gameEnded=true;
+      let winner = players.reduce((a,b)=>b.total>a.total?b:a);
+      alert("الفائز: "+winner.name);
+      let w = playersWins.find(p=>p.name===winner.name); if(w) w.wins++;
+      updateGameData(currentInstanceRef, { players, gameEnded:true, playersWins, status:"finished" });
+    };
+
+    document.getElementById("addPlayerBtn").onclick=addPlayer;
+    document.getElementById("addGameBtn").onclick=addGame;
+    document.getElementById("startGameBtn").onclick=startGame;
+
+    document.getElementById("showGamesBtnTop").onclick = showGames;
+    document.getElementById("showGamesBtnBottom").onclick = showGames;
+    document.getElementById("closeGamesModal").onclick = ()=>document.getElementById("gamesModal").style.display="none";
+
+    async function showGames(){
+      const modal=document.getElementById("gamesModal");
+      const listDiv=document.getElementById("activeGamesList");
+      listDiv.innerHTML="جار التحميل...";
+      const data=await getData(`games/${currentPlayer}`);
+      listDiv.innerHTML="";
+      if(!data) listDiv.innerHTML="لا توجد جيمات شغالة";
+      else Object.keys(data).forEach(k=>{
+        const g=data[k];
+        if(g.status==="active"){
+          const div=document.createElement("div");
+          div.className="game-item";
+          div.innerHTML=`<div>${k}</div><button class='start' onclick='joinGame("${k}")'>انضم</button>`;
+          listDiv.appendChild(div);
+        }
+      });
+      modal.style.display="flex";
+    }
+
+    window.joinGame=function(gName){
+      currentGameName=gName;
+      currentInstanceRef=`games/${currentPlayer}/${gName}`;
+      document.getElementById("setup").style.display="none";
+      document.getElementById("game").style.display="block";
+      document.getElementById("gameName").textContent="🎲 اللعبة: "+gName;
+      listen(currentInstanceRef, data=>{
+        if(!data)return;
+        players=data.players||players;
+        roundCount=data.roundCount||roundCount;
+        gameEnded=data.gameEnded||false;
+        renderPlayersTable(); renderRounds(); renderTopPlayers();
+      });
+      document.getElementById("gamesModal").style.display="none";
+    };
+
+    renderPlayerChoices();
+  </script>
+</body>
+</html>
