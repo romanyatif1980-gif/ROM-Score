@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>🎮 تسجيل السكورات</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; color: #333; }
+    .setup, .game, .wins, .active-games { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 20px auto; max-width: 900px; }
+    input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+    button { cursor: pointer; font-weight: bold; }
+    .start { background: #4caf50; color: white; }
+    .add { background: #2196f3; color: white; }
+    .end { background: #f44336; color: white; }
+    .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+    .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 150px; text-align: center; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+    .buttons { margin: 20px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>🎮 تسجيل السكورات</h1>
+
+  <div class="setup" id="setup">
+    <h2>⚙️ إعداد الجيم</h2>
+    <label>🎲 اختر اللعبة:</label>
+    <select id="gameSelect">
+      <option>دومينو</option>
+      <option>الطاولة</option>
+      <option>الشطرنج</option>
+      <option>لعبة الورق</option>
+    </select>
+    <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+    <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+
+    <hr>
+
+    <h3>👥 اختر اللاعبين:</h3>
+    <div id="playerChoices"></div>
+    <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+    <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+    <br>
+    <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+
+    <hr>
+
+    <h3>🎮 الجيمات الشغالة:</h3>
+    <div class="active-games" id="activeGames"></div>
+  </div>
+
+  <div class="game" id="game" style="display:none;">
+    <h2 id="gameName"></h2>
+    <div class="top-players" id="topPlayers"></div>
+    <table id="playersTable">
+      <thead>
+        <tr><th>اللاعب</th><th>المجموع</th></tr>
+      </thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+
+    <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+    <div class="buttons">
+      <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+      <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+    </div>
+    <table id="roundsTable">
+      <thead id="roundsHead"></thead>
+      <tbody id="roundsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="wins" id="winsTable">
+    <h2>🏆 ترتيب اللاعبين حسب عدد الفوز</h2>
+    <table>
+      <thead>
+        <tr><th>اللاعب</th><th>عدد الفوز</th></tr>
+      </thead>
+      <tbody id="winsBody"></tbody>
+    </table>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+    import { getDatabase, ref, push, set, onValue } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAIwYvgqRsv3hA93C_VR-qzufsiy_OnE4s",
+      authDomain: "rom-score.firebaseapp.com",
+      databaseURL: "https://rom-score-default-rtdb.firebaseio.com",
+      projectId: "rom-score",
+      storageBucket: "rom-score.appspot.com",
+      messagingSenderId: "1009545441375",
+      appId: "1:1009545441375:web:460f2db0c984d24936abea",
+      measurementId: "G-BKNE7YZ7FM"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ======== المتغيرات والوظائف ========
+    let fixedPlayers = ["روماني","عبير","جورج","نرمين","هاني","نيبال","شنوده","هناء"];
+    let players = [];
+    let playersWins = [];
+    let roundCount = 0;
+    let gameEnded = false;
+    let editableRound = null;
+    let currentGameId = null;
+    let currentGameName = "";
+
+    function renderPlayerChoices() {
+      const container = document.getElementById("playerChoices");
+      container.innerHTML = "";
+      fixedPlayers.forEach(name => {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = name;
+        label.appendChild(checkbox);
+        label.append(" " + name + " ");
+        container.appendChild(label);
+      });
+    }
+
+    function addPlayer() {
+      const input = document.getElementById("newPlayerInput");
+      const name = input.value.trim();
+      if(name) {
+        fixedPlayers.push(name);
+        renderPlayerChoices();
+        input.value = "";
+      }
+    }
+
+    function addGame() {
+      const input = document.getElementById("newGameInput");
+      const name = input.value.trim();
+      if(name) {
+        const select = document.getElementById("gameSelect");
+        const option = document.createElement("option");
+        option.textContent = name;
+        select.appendChild(option);
+        select.value = name;
+        input.value = "";
+      }
+    }
+
+    // ================== الجيمات الشغالة ==================
+    function loadActiveGames() {
+      const container = document.getElementById("activeGames");
+      container.innerHTML = ""; // فاضي أول مرة
+      const selectedGame = document.getElementById("gameSelect").value;
+      const gamesRef = ref(db, 'games/' + selectedGame);
+      onValue(gamesRef, snapshot => {
+        const data = snapshot.val();
+        container.innerHTML = ""; // تنظيف قبل العرض
+        if(data){
+          Object.keys(data).forEach(gameId => {
+            const gameData = data[gameId];
+            const date = new Date(gameData.timestamp).toLocaleString();
+            const btn = document.createElement("button");
+            btn.textContent = `${selectedGame} - ${date}`;
+            btn.className = "add";
+            btn.addEventListener('click', () => openGame(selectedGame, gameId));
+            container.appendChild(btn);
+          });
+        }
+      });
+    }
+
+    function startGame() {
+      const gameSelect = document.getElementById("gameSelect");
+      const gameName = gameSelect.value;
+      currentGameName = gameName;
+      document.getElementById("gameName").textContent = "🎲 اللعبة: " + gameName;
+
+      players = [];
+      document.querySelectorAll("#playerChoices input:checked").forEach(chk => {
+        let existing = playersWins.find(p => p.name === chk.value);
+        if(existing){
+          players.push({ name: chk.value, total: 0, scores: [], wins: existing.wins });
+        } else {
+          players.push({ name: chk.value, total: 0, scores: [], wins: 0 });
+          playersWins.push({ name: chk.value, wins: 0 });
+        }
+      });
+
+      if(players.length < 2) {
+        alert("لازم تختار على الأقل لاعبين!");
+        return;
+      }
+
+      document.getElementById("setup").style.display = "none";
+      document.getElementById("game").style.display = "block";
+
+      document.querySelectorAll(".add, .end, .edit-small").forEach(btn => btn.disabled = false);
+
+      // حفظ الجيم الجديد في Firebase
+      const gamesRef = ref(db, 'games/' + gameName);
+      const newGameRef = push(gamesRef);
+      currentGameId = newGameRef.key;
+      set(newGameRef, {
+        players: players.map(p => ({ name: p.name, total: p.total, scores: p.scores })),
+        timestamp: Date.now()
+      });
+
+      renderTopPlayers();
+      renderPlayersTable();
+      renderRounds();
+      loadActiveGames();
+    }
+
+    function openGame(gameName, gameId){
+      const gameRef = ref(db, 'games/' + gameName + '/' + gameId);
+      onValue(gameRef, snapshot => {
+        const data = snapshot.val();
+        if(data){
+          players = data.players.map(p => ({ ...p }));
+          roundCount = players[0].scores.length;
+          gameEnded = false;
+          editableRound = null;
+          currentGameId = gameId;
+          currentGameName = gameName;
+
+          document.getElementById("setup").style.display = "none";
+          document.getElementById("game").style.display = "block";
+          document.getElementById("gameName").textContent = "🎲 اللعبة: " + gameName;
+
+          renderTopPlayers();
+          renderPlayersTable();
+          renderRounds();
+        }
+      }, { onlyOnce: true });
+    }
+
+    function renderTopPlayers() {
+      const topDiv = document.getElementById("topPlayers");
+      topDiv.innerHTML = "";
+      const filtered = players.filter(p => p.total > 0);
+      filtered.sort((a,b) => b.total - a.total);
+      filtered.forEach(p => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `${p.name}<br>⭐ ${p.total}`;
+        topDiv.appendChild(card);
+      });
+    }
+
+    function renderPlayersTable() {
+      const body = document.getElementById("playersBody");
+      body.innerHTML = "";
+      players.slice().sort((a,b)=> b.total - a.total).forEach(p => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${p.name}</td><td>${p.total}</td>`;
+        body.appendChild(row);
+      });
+    }
+
+    function renderRounds() {
+      const head = document.getElementById("roundsHead");
+      const body = document.getElementById("roundsBody");
+
+      let headHTML = "<tr><th>الجولة</th>";
+      players.forEach(p => { headHTML += `<th>${p.name}</th>`; });
+      headHTML += "<th>تعديل</th></tr>";
+      head.innerHTML = headHTML;
+
+      let totalRow = "<tr style='background:#eee; font-weight:bold;'><td>المجموع</td>";
+      players.forEach(p => { totalRow += `<td>${p.total}</td>`; });
+      totalRow += "<td>-</td></tr>";
+      body.innerHTML = totalRow;
+
+      for (let r=roundCount-1; r>=0; r--) {
+        let row = `<tr><td>جولة ${r+1}</td>`;
+        players.forEach((p,i) => {
+          const val = p.scores[r] !== undefined ? p.scores[r] : "";
+          const disabled = (editableRound === r && !gameEnded) ? "" : "disabled"; 
+          row += `<td><input type="number" value="${val}" onchange="updateScore(${i},${r},this.value)"`
+          + (disabled ? " disabled" : "") + `></td>`;
+        });
+        row += `<td><button class="edit-small" onclick="editRound(${r})" ${gameEnded ? "disabled" : ""}>✏️</button></td>`;
+        row += "</tr>";
+        body.innerHTML += row;
+      }
+    }
+
+    function addRound() {
+      if(gameEnded) return;
+      roundCount++;
+      editableRound = roundCount-1;
+      renderRounds();
+    }
+
+    function editRound(r) {
+      if(gameEnded) return;
+      editableRound = r;
+      renderRounds();
+      alert("ممكن تعدل جولة " + (r+1));
+    }
+
+    function updateScore(playerIndex, roundIndex, value) {
+      players[playerIndex].scores[roundIndex] = Number(value);
+      players[playerIndex].total = players[playerIndex].scores.reduce((a,b)=>a+(b||0),0);
+      renderTopPlayers();
+      renderPlayersTable();
+      renderRounds();
+
+      // تحديث Firebase
+      if(currentGameId && currentGameName){
+        const gameRef = ref(db, 'games/' + currentGameName + '/' + currentGameId + '/players/' + playerIndex);
+        set(gameRef, players[playerIndex]);
+      }
+    }
+
+    function endGame() {
+      gameEnded = true;
+      editableRound = null;
+      renderRounds();
+      document.querySelectorAll(".add, .end, .edit-small").forEach(btn => btn.disabled = true);
+
+      let winner = players.reduce((prev, curr) => (curr.total > prev.total ? curr : prev), players[0]);
+      if(winner){
+        winner.wins++;
+        let found = playersWins.find(p => p.name === winner.name);
+        if(found) found.wins = winner.wins;
+      }
+
+      renderPlayersTable();
+      renderWinsTable();
+
+      const gameDiv = document.getElementById("game");
+      const newBtn = document.createElement("button");
+      newBtn.textContent = "🔄 جيم جديد";
+      newBtn.className = "start";
+      newBtn.addEventListener('click', newGame);
+      gameDiv.appendChild(newBtn);
+
+      alert("تم إنهاء الجيم ✅ الفائز: " + winner.name);
+
+      // تحديث الفائز في Firebase
+      if(currentGameId && currentGameName){
+        const gameRef = ref(db, 'games/' + currentGameName + '/' + currentGameId);
+        set(gameRef, {
+          players: players.map(p => ({ name: p.name, total: p.total, scores: p.scores })),
+          ended: true,
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    function newGame() {
+      players = [];
+      roundCount = 0;
+      gameEnded = false;
+      editableRound = null;
+      currentGameId = null;
+      currentGameName = "";
+
+      document.getElementById("setup").style.display = "block";
+      document.getElementById("game").style.display = "none";
+
+      document.getElementById("topPlayers").innerHTML = "";
+      document.getElementById("playersBody").innerHTML = "";
+      document.getElementById("roundsHead").innerHTML = "";
+      document.getElementById("roundsBody").innerHTML = "";
+      document.getElementById("gameName").textContent = "";
+
+      const gameDiv = document.getElementById("game");
+      const newBtn = gameDiv.querySelector("button.start");
+      if(newBtn) newBtn.remove();
+
+      renderPlayerChoices();
+      loadActiveGames();
+    }
+
+    function renderWinsTable() {
+      const body = document.getElementById("winsBody");
+      body.innerHTML = "";
+      playersWins.slice().sort((a,b)=>b.wins - a.wins).forEach(p => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${p.name}</td><td>${p.wins}</td>`;
+        body.appendChild(row);
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', (event) => {
+      renderPlayerChoices();
+      renderWinsTable();
+      loadActiveGames();
+      document.getElementById('addPlayerBtn').addEventListener('click', addPlayer);
+      document.getElementById('addGameBtn').addEventListener('click', addGame);
+      document.getElementById('startGameBtn').addEventListener('click', startGame);
+      document.getElementById('addRoundBtn').addEventListener('click', addRound);
+      document.getElementById('endGameBtn').addEventListener('click', endGame);
+      document.getElementById('gameSelect').addEventListener('change', loadActiveGames);
+      window.updateScore = updateScore;
+      window.editRound = editRound;
+    });
+  </script>
+</body>
+</html>
