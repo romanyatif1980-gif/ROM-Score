@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>تجميع النقاط</title>
+  <style>
+    body {font-family: "Cairo", sans-serif; margin: 20px; background: #f8f9fa;}
+    h1 {text-align: center;}
+    .container {max-width: 800px; margin: auto;}
+    .section {background: #fff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px #ccc; margin-bottom: 15px;}
+    input, select, button {padding: 8px; margin: 5px; border-radius: 6px; border: 1px solid #ccc;}
+    button {cursor: pointer;}
+    table {width: 100%; border-collapse: collapse; margin-top: 10px;}
+    th, td {border: 1px solid #ddd; padding: 8px; text-align: center;}
+    th {background: #eee;}
+    .rounds {margin-top: 15px;}
+    .highlight {background: #d4edda;}
+    .muted {color: #777; font-size: 0.9em;}
+    .small {font-size: 0.85em; padding: 3px 8px;}
+    #roomsModal {position: fixed; inset: 0; background: rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center;}
+    #roomsModal .content {background:#fff; padding:20px; border-radius:10px; width:90%; max-width:600px;}
+    .game-row {display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding:6px 0;}
+  </style>
+</head>
+<body>
+  <h1>🎯 تجميع النقاط</h1>
+  <div class="container">
+    <div id="setup" class="section">
+      <h3>إعداد اللعبة</h3>
+      <label>اسم اللعبة:</label>
+      <select id="gameSelect">
+        <option value="بلوت">بلوت</option>
+        <option value="طرنيب">طرنيب</option>
+      </select>
+      <input id="newGameInput" placeholder="إضافة لعبة جديدة" />
+      <button id="addGameBtn">➕</button><br>
+
+      <label>اللاعبين:</label>
+      <div id="playerChoices"></div>
+      <input id="newPlayerInput" placeholder="إضافة لاعب جديد" />
+      <button id="addPlayerBtn">➕</button><br>
+
+      <button id="startGameBtn">🚀 بدء اللعبة</button>
+      <button id="showRoomsBtn">🎯 عرض الجيمات الشغالة</button>
+    </div>
+
+    <div id="game" class="section" style="display:none">
+      <h3 id="gameName"></h3>
+      <div id="rounds" class="rounds"></div>
+      <button id="addRoundBtn">➕ جولة جديدة</button>
+      <button id="endGameBtn">🏁 إنهاء اللعبة</button>
+      <button id="clearStorageBtn">🗑️ مسح الجيم الحالي</button>
+      <h3>🏆 النتائج</h3>
+      <div id="topPlayers"></div>
+      <table id="playersTable"></table>
+      <h3>🥇 ترتيب الفوز</h3>
+      <table id="winsTable"></table>
+    </div>
+  </div>
+
+  <div id="roomsModal">
+    <div class="content">
+      <h3>🎯 الجيمات الشغالة</h3>
+      <div id="roomsList"></div>
+      <button id="closeRoomsBtn">إغلاق</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, set, get, remove, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_DOMAIN",
+      databaseURL: "YOUR_DB_URL",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_BUCKET",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ======== المتغيرات ========
+    let fixedPlayers = ["روماني","أحمد","مينا","بيتر"];
+    let players = [];
+    let currentGameId = null;
+    let currentGameRef = null;
+    let roundCount = 0;
+    let editableRound = null;
+    let lastGameName = "";
+    let gameEnded = false;
+
+    // ======== المراجع ========
+    const gameSelect = document.getElementById("gameSelect");
+    const newGameInput = document.getElementById("newGameInput");
+    const addGameBtn = document.getElementById("addGameBtn");
+    const newPlayerInput = document.getElementById("newPlayerInput");
+    const playerChoicesDiv = document.getElementById("playerChoices");
+    const addPlayerBtn = document.getElementById("addPlayerBtn");
+    const startGameBtn = document.getElementById("startGameBtn");
+    const addRoundBtn = document.getElementById("addRoundBtn");
+    const endGameBtn = document.getElementById("endGameBtn");
+    const clearStorageBtn = document.getElementById("clearStorageBtn");
+    const showRoomsBtn = document.getElementById("showRoomsBtn");
+    const roomsModal = document.getElementById("roomsModal");
+    const closeRoomsBtn = document.getElementById("closeRoomsBtn");
+    const roomsList = document.getElementById("roomsList");
+
+    // ======== دوال مساعدة ========
+    const isText = v => v && v.trim() !== "";
+    const todayDateStr = ()=> new Date().toISOString().split("T")[0];
+    const sanitizeForKey = t => t.replace(/[.#$/[\]]/g,"_");
+    const gameRefById = id => ref(db, 'games/' + id);
+
+    function renderPlayerChoices() {
+      playerChoicesDiv.innerHTML = "";
+      fixedPlayers.forEach(p=>{
+        const label = document.createElement("label");
+        label.style.margin = "0 10px";
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.value = p;
+        label.append(chk, " ", p);
+        playerChoicesDiv.appendChild(label);
+      });
+    }
+
+    function renderPlayersTable() {
+      const table = document.getElementById("playersTable");
+      table.innerHTML = "<tr><th>اللاعب</th><th>المجموع</th></tr>";
+      players.forEach(p=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${p.name}</td><td>${p.total || 0}</td>`;
+        table.appendChild(tr);
+      });
+    }
+
+    function renderWinsTable() {
+      const table = document.getElementById("winsTable");
+      table.innerHTML = "<tr><th>اللاعب</th><th>عدد الفوز</th></tr>";
+      [...players].sort((a,b)=>(b.wins||0)-(a.wins||0)).forEach(p=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${p.name}</td><td>${p.wins || 0}</td>`;
+        table.appendChild(tr);
+      });
+    }
+
+    function renderRounds() {
+      const div = document.getElementById("rounds");
+      div.innerHTML = "";
+      for (let i = roundCount - 1; i >= 0; i--) {
+        const row = document.createElement("div");
+        row.innerHTML = `<strong>جولة ${i+1}</strong> - ${players.map(p=>`${p.name}: ${p.scores[i] || 0}`).join(", ")}`;
+        div.appendChild(row);
+      }
+    }
+
+    function renderTopPlayers() {
+      const div = document.getElementById("topPlayers");
+      const sorted = [...players].sort((a,b)=>b.total - a.total);
+      if (sorted.length)
+        div.innerHTML = `👑 ${sorted[0].name} - ${sorted[0].total}`;
+    }
+
+    function saveToDB() {
+      if(!currentGameId) return;
+      set(currentGameRef, {
+        gameName: lastGameName,
+        players,
+        roundCount,
+        gameEnded
+      });
+    }
+
+    function attachListenerToGame(gameId) {
+      currentGameId = gameId;
+      currentGameRef = gameRefById(gameId);
+      onValue(currentGameRef, snap=>{
+        const data = snap.val();
+        if(!data) return;
+        players = data.players || [];
+        roundCount = data.roundCount || 0;
+        gameEnded = data.gameEnded || false;
+        lastGameName = data.gameName || "";
+        document.getElementById("setup").style.display="none";
+        document.getElementById("game").style.display="block";
+        document.getElementById("gameName").textContent="🎲 اللعبة: "+lastGameName;
+        renderPlayersTable(); renderRounds(); renderTopPlayers(); renderWinsTable();
+      });
+    }
+    window.attachListenerToGame = attachListenerToGame;
+
+    // ======== الأزرار ========
+    addGameBtn.onclick = ()=>{
+      const val = newGameInput.value.trim(); if(!val) return;
+      const opt = document.createElement("option"); opt.value=val; opt.textContent=val; gameSelect.appendChild(opt); gameSelect.value=val; newGameInput.value="";
+    };
+
+    addPlayerBtn.onclick = ()=>{
+      const val = newPlayerInput.value.trim(); if(!val) return;
+      if(!fixedPlayers.includes(val)) fixedPlayers.push(val);
+      renderPlayerChoices();
+      newPlayerInput.value="";
+      saveToDB();
+    };
+
+    startGameBtn.onclick = ()=>{
+      const selected = [...playerChoicesDiv.querySelectorAll("input[type=checkbox]:checked")].map(x=>x.value.trim()).filter(isText);
+      if(selected.length<2){alert("اختر لاعبين على الأقل");return;}
+      const dateStr = todayDateStr();
+      let nameBase = `${gameSelect.value}_${selected.join("_")}_${dateStr}`;
+      const id = sanitizeForKey(nameBase + "_" + Date.now());
+      currentGameId=id;
+      lastGameName=nameBase;
+      players = selected.map(n=>({name:n,scores:[],total:0,wins:0}));
+      roundCount=0; editableRound=null; gameEnded=false;
+      currentGameRef=gameRefById(currentGameId);
+      attachListenerToGame(currentGameId);
+      renderPlayerChoices();
+      document.getElementById("setup").style.display="none";
+      document.getElementById("game").style.display="block";
+      document.getElementById("gameName").textContent="🎲 اللعبة: "+lastGameName;
+      renderTopPlayers(); renderPlayersTable(); renderRounds();
+      saveToDB();
+    };
+
+    addRoundBtn.onclick = ()=>{
+      players.forEach(p=>{ if(!Array.isArray(p.scores)) p.scores=[]; p.scores.push(0); });
+      roundCount++;
+      editableRound = roundCount - 1;
+      renderRounds();
+      saveToDB();
+    };
+
+    endGameBtn.onclick = ()=>{
+      if(!confirm("هل أنت متأكد من إنهاء الجيم؟")) return;
+      gameEnded=true;
+      editableRound=null;
+      players.forEach(p=>{ if(!p.wins) p.wins=0; });
+      const maxTotal = Math.max(...players.map(p=>p.total||0));
+      players.filter(p=>p.total===maxTotal).forEach(p=>p.wins++);
+      renderPlayersTable(); renderTopPlayers(); renderWinsTable();
+      saveToDB();
+    };
+
+    clearStorageBtn.onclick = ()=>{
+      if(!confirm("مسح الجيم الحالي؟")) return;
+      if(currentGameId) remove(gameRefById(currentGameId));
+      localStorage.removeItem('currentGameId');
+      location.reload();
+    };
+
+    showRoomsBtn.onclick = ()=>{
+      roomsModal.style.display="flex";
+      get(ref(db,'games')).then(snap=>{
+        const val = snap.val();
+        roomsList.innerHTML="";
+        if(val) Object.keys(val).forEach(k=>{
+          const div = document.createElement("div");
+          const g = val[k];
+          div.className = "game-row";
+          div.innerHTML = `
+            <div>
+              <span class="game-title">${g.gameName || k}</span>
+              <span class="muted">(${Object.values(g.players || []).map(p=>p.name).join(", ")})</span>
+            </div>
+            <div>
+              <button class="small" onclick="attachListenerToGame('${k}')">فتح</button>
+              <button class="small" style="background:#f44336;color:#fff;" onclick="deleteGame('${k}')">🗑️ حذف</button>
+            </div>
+          `;
+          roomsList.appendChild(div);
+        });
+      });
+    };
+
+    window.deleteGame = function(id) {
+      if (!confirm("هل تريد حذف هذا الجيم نهائيًا؟")) return;
+      remove(ref(db, 'games/' + id)).then(() => {
+        alert("تم حذف الجيم بنجاح ✅");
+        showRoomsBtn.onclick();
+      });
+    };
+
+    closeRoomsBtn.onclick = ()=>{roomsModal.style.display="none";};
+
+    // Init
+    renderPlayerChoices();
+    renderWinsTable();
+    const savedId = localStorage.getItem('currentGameId');
+    if(savedId){attachListenerToGame(savedId);}
+  </script>
+</body>
+</html>
