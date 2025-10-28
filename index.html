@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8" />
+<title>🎮 تسجيل السكورات (Live - Firebase)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+  h1, h2 { text-align: center; color: #333; }
+  .setup, .game, .wins { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 20px auto; max-width: 900px; }
+  input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+  button { cursor: pointer; font-weight: bold; }
+  .start { background: #4caf50; color: white; }
+  .add { background: #2196f3; color: white; }
+  .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+  .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 150px; text-align: center; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+  th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+  th { background: #eee; }
+  input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+  .buttons { margin: 20px 0; text-align: center; }
+  .buttons button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; }
+  .end { background: #f44336; color: white; }
+  .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+  .small { font-size: 12px; padding: 6px 10px; border-radius: 6px; }
+  .delete-small { font-size: 12px; padding: 3px 6px; border-radius: 6px; background: #f44336; color: white; margin-left: 5px; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 999; }
+  .modal { background: white; padding: 16px; border-radius: 10px; width: 90%; max-width: 600px; max-height: 70vh; overflow: auto; }
+  .game-row { display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee; }
+  .game-title { font-weight: bold; }
+  .muted { color: #666; font-size: 13px; }
+  .hint { font-size: 13px; color: #444; text-align: center; margin-bottom: 8px; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
+  .rooms-list div { margin-bottom: 8px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .toast-container { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+  .toast { pointer-events: auto; min-width: 220px; max-width: 90vw; padding: 10px 14px; border-radius: 10px; background: #222; color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,0.2); font-weight: bold; text-align: center; opacity: 0; transform: translateY(-6px); animation: toast-in 300ms forwards; }
+  .toast.success { background: #4caf50; }
+  .toast.info { background: #2196f3; }
+  .toast.warn { background: #f44336; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
+</style>
+</head>
+<body>
+<h1>🎮 تسجيل السكورات</h1>
+
+<div style="text-align:center; margin-bottom:10px;">
+  <button id="showRoomsBtn" class="small">🎯 عرض الجيمات الشغالة</button>
+</div>
+
+<div class="setup" id="setup">
+  <h2>⚙️ إعداد الجيم</h2>
+  <label>🎲 اختر اللعبة:</label>
+  <select id="gameSelect">
+    <option>دومينو</option>
+    <option>الطاولة</option>
+    <option>الشطرنج</option>
+    <option>لعبة الورق</option>
+  </select>
+  <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+  <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+
+  <hr>
+
+  <h3>👥 اختر اللاعبين:</h3>
+  <div id="playerChoices"></div>
+  <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+  <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+  <div class="hint">اختار لاعبين ثم اضغط "ابدأ الجيم" — سيُنشأ جيم باسم: <code>اللعبة_اللاعب1_اللاعب2_..._YYYY-MM-DD_NN</code></div>
+
+  <br>
+  <div style="margin-top:10px;">
+    <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+    <button id="clearWinsBtn" class="small" style="background:#e0e0e0;">🗑️ مسح بيانات الفوز</button>
+  </div>
+</div>
+
+<div class="game" id="game" style="display:none;">
+  <h2 id="gameName"></h2>
+  <div class="top-players" id="topPlayers"></div>
+  <table id="playersTable">
+    <thead><tr><th>اللاعب</th><th>المجموع</th></tr></thead>
+    <tbody id="playersBody"></tbody>
+  </table>
+
+  <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+  <div class="buttons">
+    <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+    <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+  </div>
+  <table id="roundsTable">
+    <thead id="roundsHead"></thead>
+    <tbody id="roundsBody"></tbody>
+  </table>
+</div>
+
+<div class="wins" id="winsTable">
+  <h2>🏆 ترتيب اللاعبين حسب عدد الفوز</h2>
+  <table>
+    <thead><tr><th>اللاعب</th><th>عدد الفوز</th></tr></thead>
+    <tbody id="winsBody"></tbody>
+  </table>
+</div>
+
+<div id="roomsModal" class="modal-backdrop" aria-hidden="true">
+  <div class="modal">
+    <h3>🎮 الجيمات الشغالة</h3>
+    <div id="roomsList" style="margin-top:8px;" class="rooms-list"></div>
+    <div style="text-align:center; margin-top:12px;">
+      <button id="closeRoomsBtn" class="small">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer" aria-hidden="true"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getDatabase, ref, set, get, onValue, remove, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAIwYvgqRsv3hA93C_VR-qzufsiy_OnE4s",
+  authDomain: "rom-score.firebaseapp.com",
+  databaseURL: "https://rom-score-default-rtdb.firebaseio.com",
+  projectId: "rom-score",
+  storageBucket: "rom-score.firebasestorage.app",
+  messagingSenderId: "1009545441375",
+  appId: "1:1009545441375:web:460f2db0c984d24936abea",
+  measurementId: "G-BKNE7YZ7FM"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let players = [], playersWins = [], roundCount = 0, gameEnded = false, lastGameName = "", editableRound = null, currentGameId = null;
+
+const DEFAULT_FIXED_PLAYERS = ["روماني","عبير","جورج","نرمين","هاني","نيبال","شنوده","هناء"];
+let fixedPlayers = DEFAULT_FIXED_PLAYERS.slice();
+
+const localScoresBuffer = {};
+
+function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+function sanitizeKey(name){ return name.replace(/[.#$[\]/]/g,"_"); }
+
+function showToast(msg,type="success"){ const container=document.getElementById("toastContainer"); const el=document.createElement("div"); el.className=`toast ${type}`; el.textContent=msg; container.appendChild(el); setTimeout(()=>{ el.style.animation="toast-out 300ms forwards"; },2000); setTimeout(()=>{ try{ container.removeChild(el); }catch(e){} },2320); }
+
+function recalcTotals(){ players.forEach(p=>{ p.total=(Array.isArray(p.scores)?p.scores.reduce((a,b)=>a+(Number.isFinite(b)?b:0),0):0); }); }
+
+function renderPlayerChoices(){ const c=document.getElementById("playerChoices"); c.innerHTML=""; fixedPlayers.forEach(n=>{ const ch=players.find(p=>p.name===n)?'checked':""; const el=document.createElement("div"); el.innerHTML=`<label><input type="checkbox" value="${n}" ${ch}> ${n}</label>`; c.appendChild(el); }); }
+
+function renderTopPlayers(){ const c=document.getElementById("topPlayers"); c.innerHTML=""; [...players].sort((a,b)=>b.total-a.total).slice(0,4).forEach(p=>{ const d=document.createElement("div"); d.className="card"; d.textContent=`${p.name}: ${p.total}`; c.appendChild(d); }); }
+
+function renderPlayersTable(){ const tbody=document.getElementById("playersBody"); tbody.innerHTML=""; players.forEach(p=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${p.name}</td><td>${p.total}</td>`; tbody.appendChild(tr); }); }
+
+function renderRounds(){
+  const head=document.getElementById("roundsHead"); const body=document.getElementById("roundsBody");
+  let h="<tr><th>الجولة</th>"; players.forEach(p=>h+=`<th>${p.name}</th>`); h+="<th>تعديل</th></tr>"; head.innerHTML=h;
+
+  let totalRow="<tr style='background:#eee;font-weight:bold;'><td>المجموع</td>";
+  players.forEach(p=>totalRow+=`<td>${p.total}</td>`); totalRow+="<td>-</td></tr>"; body.innerHTML=totalRow;
+
+  for(let r=roundCount-1;r>=0;r--){
+    let row=`<tr><td>جولة ${r+1}</td>`;
+    players.forEach((p,i)=>{
+      if(!Array.isArray(p.scores)) p.scores=[];
+      const bufKey=`${i}_${r}`; const val=localScoresBuffer[bufKey]!==undefined?localScoresBuffer[bufKey]:(p.scores[r]||"");
+      const disabled=(editableRound===r && !gameEnded)?"":"disabled";
+      row+=`<td><input class="score-input" data-player-index="${i}" data-round-index="${r}" type="number" value="${val}" ${disabled}></td>`;
+    });
+    row+=`<td><button class="edit-small" onclick="editRound(${r})" ${gameEnded?"disabled":""}>✏️</button></td></tr>`;
+    body.innerHTML+=row;
+  }
+
+  document.querySelectorAll(".score-input").forEach(input=>{
+    input.onchange=e=>{
+      const pi=Number(e.target.dataset.playerIndex); const ri=Number(e.target.dataset.roundIndex);
+      const v=Number(e.target.value); players[pi].scores[ri]=v; localScoresBuffer[`${pi}_${ri}`]=v; recalcTotals(); renderPlayersTable(); renderTopPlayers(); saveToDB();
+    };
+  });
+}
+
+function editRound(r){ editableRound=r; renderRounds(); }
+
+function saveToDB(){
+  if(!currentGameId) return;
+  const safePlayers=players.map(p=>({...p, scores:p.scores.map(s=>Number.isFinite(s)?s:null)}));
+  set(ref(db,`games/${currentGameId}`), { players:safePlayers, roundCount, gameEnded, editableRound, gameName:lastGameName, lastUpdate:Date.now() });
+}
+
+function loadWins(){ onValue(ref(db,'playersWins'),snap=>{ const val=snap.val()||{}; playersWins=Object.keys(val).map(k=>({name:k,wins:val[k]})); renderWinsTable(); }); }
+
+function renderWinsTable(){ const tbody=document.getElementById("winsBody"); tbody.innerHTML=""; playersWins.sort((a,b)=>b.wins-a.wins).forEach(p=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${p.name}</td><td>${p.wins}</td>`; tbody.appendChild(tr); }); }
+
+function attachGameListener(id){ currentGameId=id; onValue(ref(db,`games/${id}`),snap=>{ const val=snap.val(); if(!val){ players=[]; roundCount=0; gameEnded=false; editableRound=null; renderPlayerChoices(); renderPlayersTable(); renderRounds(); return; } players=val.players||[]; roundCount=val.roundCount||0; gameEnded=val.gameEnded||false; editableRound=val.editableRound||null; lastGameName=val.gameName||""; renderPlayerChoices(); renderPlayersTable(); renderRounds(); renderTopPlayers(); }); }
+
+// --- Buttons ---
+document.getElementById("addGameBtn").onclick=()=>{ const val=document.getElementById("newGameInput").value.trim(); if(!val) return; const opt=document.createElement("option"); opt.value=val; opt.textContent=val; document.getElementById("gameSelect").appendChild(opt); document.getElementById("gameSelect").value=val; document.getElementById("newGameInput").value=""; };
+
+document.getElementById("addPlayerBtn").onclick=()=>{
+  const val=document.getElementById("newPlayerInput").value.trim(); if(!val) return; if(!fixedPlayers.includes(val)) fixedPlayers.push(val); renderPlayerChoices(); document.getElementById("newPlayerInput").value=""; saveToDB(); 
+};
+
+document.getElementById("startGameBtn").onclick=()=>{
+  const sel=document.getElementById("gameSelect");
+  const chosenGame=sel.value;
+  const checkboxes=document.querySelectorAll("#playerChoices input[type=checkbox]:checked");
+  if(checkboxes.length<2){ showToast("اختر لاعبين على الأقل","warn"); return; }
+  players=Array.from(checkboxes).map(c=>({name:c.value,scores:[],total:0}));
+  roundCount=0; editableRound=null; gameEnded=false;
+  lastGameName=`${chosenGame}_${players.map(p=>p.name).join("_")}_${todayStr()}_${Date.now()}`;
+  attachGameListener(lastGameName);
+  saveToDB();
+  document.getElementById("setup").style.display="none";
+  document.getElementById("game").style.display="block";
+  document.getElementById("gameName").textContent=chosenGame;
+  renderTopPlayers(); renderPlayersTable(); renderRounds();
+  showToast("تم بدء الجيم بنجاح");
+};
+
+document.getElementById("addRoundBtn").onclick=()=>{
+  players.forEach(p=>{ if(!Array.isArray(p.scores)) p.scores=[]; p.scores.push(null); });
+  roundCount++; editableRound=roundCount-1; renderRounds(); saveToDB();
+};
+
+document.getElementById("endGameBtn").onclick=()=>{
+  if(!confirm("هل أنت متأكد من إنهاء الجيم؟")) return;
+  gameEnded=true; editableRound=null;
+  recalcTotals();
+  const maxTotal=Math.max(...players.map(p=>p.total)); 
+  const winners=players.filter(p=>p.total===maxTotal).map(p=>p.name);
+  showToast(`🎉 الفائز${winners.length>1?'ون':''}: ${winners.join(", ")
+  showToast(`🎉 الفائز${winners.length>1?'ون':''}: ${winners.join(", ")}`, "success");
+
+  // تحديث عدد الفوز لكل لاعب
+  winners.forEach(name=>{
+    const winRef = ref(db, `playersWins/${sanitizeKey(name)}`);
+    runTransaction(winRef, current => (current||0)+1);
+  });
+
+  saveToDB();
+  renderWinsTable();
+};
+
+// مسح بيانات الفوز
+document.getElementById("clearWinsBtn").onclick=()=>{
+  if(confirm("هل تريد مسح جميع بيانات الفوز؟")) remove(ref(db,'playersWins'));
+};
+
+// عرض الجيمات الشغالة
+document.getElementById("showRoomsBtn").onclick=()=>{
+  get(ref(db,'games')).then(snap=>{
+    const val = snap.val()||{};
+    const list = document.getElementById("roomsList");
+    list.innerHTML="";
+    Object.keys(val).forEach(k=>{
+      const div=document.createElement("div");
+      div.innerHTML=`<span>${val[k].gameName}</span>
+        <button class="small" onclick="attachGameListener('${k}'); document.getElementById('roomsModal').style.display='none'; document.getElementById('setup').style.display='none'; document.getElementById('game').style.display='block';">📥 افتح</button>
+        <button class="delete-small" onclick="if(confirm('هل تريد حذف الجيم؟')) remove(ref(db,'games/${k}'));">🗑️ حذف</button>`;
+      list.appendChild(div);
+    });
+    document.getElementById("roomsModal").style.display="flex";
+  });
+};
+
+document.getElementById("closeRoomsBtn").onclick=()=>{ document.getElementById("roomsModal").style.display="none"; };
+
+// تحميل ترتيب الفوز عند بداية التطبيق
+loadWins();
+
+// Expose editRound globally for buttons
+window.editRound = editRound;
+
+</script>
+</body>
+</html>
