@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="utf-8" />
+  <title>🎮 تسجيل السكورات (Live - Firebase) - نهائي</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; color: #333; }
+    .setup, .game, .wins {
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin: 20px auto;
+      max-width: 900px;
+    }
+    input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+    button { cursor: pointer; font-weight: bold; }
+    .start { background: #4caf50; color: white; }
+    .add { background: #2196f3; color: white; }
+    .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      width: 150px;
+      text-align: center;
+      font-weight: bold;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+    .buttons { margin: 20px 0; text-align: center; }
+    .buttons button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; }
+    .end { background: #f44336; color: white; }
+    .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+    .small { font-size: 12px; padding: 6px 10px; border-radius: 6px; }
+    .delete-small { font-size: 12px; padding: 3px 6px; border-radius: 6px; background: #f44336; color: white; margin-left: 5px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 999; }
+    .modal { background: white; padding: 16px; border-radius: 10px; width: 90%; max-width: 600px; max-height: 70vh; overflow: auto; }
+    .muted { color: #666; font-size: 13px; }
+    .hint { font-size: 13px; color: #444; text-align: center; margin-bottom: 8px; }
+    .toast-container { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+    .toast { pointer-events: auto; min-width: 220px; max-width: 90vw; padding: 10px 14px; border-radius: 10px; background: #222; color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,0.2); font-weight: bold; text-align: center; opacity: 0; transform: translateY(-6px); animation: toast-in 300ms forwards; }
+    .toast.success { background: #4caf50; } .toast.info { background: #2196f3; } .toast.warn { background: #f44336; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
+  </style>
+</head>
+<body>
+  <h1>🎮 تسجيل السكورات</h1>
+
+  <div style="text-align:center; margin-bottom:10px;">
+    <button id="showRoomsBtn" class="small">🎯 عرض الجيمات الشغالة</button>
+  </div>
+
+  <div class="setup" id="setup">
+    <h2>⚙️ إعداد الجيم</h2>
+    <label>🎲 اختر اللعبة:</label>
+    <select id="gameSelect">
+      <option>دومينو</option>
+      <option>الطاولة</option>
+      <option>الشطرنج</option>
+      <option>لعبة الورق</option>
+    </select>
+    <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+    <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+
+    <hr>
+
+    <h3>👥 اختر اللاعبين:</h3>
+    <div id="playerChoices"></div>
+    <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+    <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+    <div class="hint">اختار لاعبين ثم اضغط "ابدأ الجيم" — سيُنشأ جيم باسم: <code>اللعبة_اللاعب1_اللاعب2_..._YYYY-MM-DD_NN</code></div>
+
+    <br>
+    <div style="margin-top:10px;">
+      <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+      <button id="clearWinsBtn" class="small" style="background:#e0e0e0;">🗑️ مسح بيانات الفوز</button>
+    </div>
+  </div>
+
+  <div class="game" id="game" style="display:none;">
+    <h2 id="gameName"></h2>
+    <div class="top-players" id="topPlayers"></div>
+    <table id="playersTable">
+      <thead><tr><th>اللاعب</th><th>المجموع</th></tr></thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+
+    <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+    <div class="buttons">
+      <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+      <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+      <button id="resetGameBtn" class="small" style="background:#9e9e9e;">🔁 إعادة تعيين الجيم</button>
+    </div>
+    <table id="roundsTable">
+      <thead id="roundsHead"></thead>
+      <tbody id="roundsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="wins" id="winsTable">
+    <h2>🏆 ترتيب اللاعبين حسب عدد الفوز</h2>
+    <table>
+      <thead><tr><th>اللاعب</th><th>عدد الفوز</th></tr></thead>
+      <tbody id="winsBody"></tbody>
+    </table>
+  </div>
+
+  <div id="roomsModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal">
+      <h3>🎮 الجيمات الشغالة</h3>
+      <div id="roomsList" style="margin-top:8px;" class="rooms-list"></div>
+      <div style="text-align:center; margin-top:12px;">
+        <button id="closeRoomsBtn" class="small">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer" aria-hidden="true"></div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, remove, runTransaction, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // === استخدم نفس مشروعك ===
+    const firebaseConfig = {
+      apiKey: "AIzaSyAIwYvgqRsv3hA93C_VR-qzufsiy_OnE4s",
+      authDomain: "rom-score.firebaseapp.com",
+      databaseURL: "https://rom-score-default-rtdb.firebaseio.com",
+      projectId: "rom-score",
+      storageBucket: "rom-score.firebasestorage.app",
+      messagingSenderId: "1009545441375",
+      appId: "1:1009545441375:web:460f2db0c984d24936abea",
+      measurementId: "G-BKNE7YZ7FM"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // client id ثابت لكل متصفح (للتمييز عند الحفظ)
+    let clientId = localStorage.getItem('rs_clientId');
+    if (!clientId) {
+      clientId = 'c_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+      try { localStorage.setItem('rs_clientId', clientId); } catch(e){}
+    }
+
+    // === حالة التطبيق ===
+    const DEFAULT_FIXED_PLAYERS = ["روماني","عبير","جورج","نرمين","هاني","نيبال","شنوده","هناء"];
+    let fixedPlayers = DEFAULT_FIXED_PLAYERS.slice();
+    let players = [];          // array of { name, scores: [], total, wins }
+    let playersWins = [];
+    let roundCount = 0;
+    let rounds = [];           // array of round names
+    let gameEnded = false;
+    let editableRound = null;
+    let lastGameName = "";
+    let currentGameId = null;
+    let currentGameRef = null;
+    let currentUnsubscribe = null;
+    let applyingRemote = false;
+
+    // pending local edits (will be written per-cell)
+    let isUserEditing = false;
+    let localScoresBuffer = {}; // keys: "pi_ri" -> value (number|null)
+
+    // last server time applied (to ignore old snapshots)
+    let lastAppliedServerTime = 0;
+
+    // === helpers ===
+    function isText(x){ return typeof x === 'string' && x.trim().length > 0; }
+    function sanitizeForKey(name) { return isText(name)?name.replace(/[.#$\[\]\/]/g, '_').trim():"player"; }
+    function todayDateStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function gameRefById(id) { return ref(db, `games/${id}`); }
+    function winsRef() { return ref(db, `playersWins`); }
+    function metaRef() { return ref(db, `meta`); }
+
+    function recalcTotalsLocal() {
+      players.forEach(p => {
+        if(!Array.isArray(p.scores)) p.scores=[];
+        p.total = p.scores.reduce((a,b)=> a + (Number.isFinite(b) ? b : 0), 0);
+      });
+    }
+
+    function syncPlayersWinsFromArray() {
+      players.forEach(p => { const w = playersWins.find(x=>x.name===p.name); p.wins = w ? Number(w.wins)||0 : p.wins||0; });
+    }
+
+    // === rendering ===
+    function renderPlayerChoices() {
+      const container = document.getElementById("playerChoices");
+      container.innerHTML = "";
+      fixedPlayers.forEach(name=>{
+        const checked = players.find(p=>p.name===name)?'checked':"";
+        const el = document.createElement("div");
+        el.innerHTML = `<label><input type="checkbox" value="${name}" ${checked}> ${name}</label>`;
+        container.appendChild(el);
+      });
+    }
+
+    function renderTopPlayers() {
+      const container = document.getElementById("topPlayers");
+      container.innerHTML="";
+      const sorted = [...players].sort((a,b)=>b.total - a.total);
+      sorted.slice(0,4).forEach(p=>{
+        const div = document.createElement("div");
+        div.className="card";
+        div.textContent=`${p.name}: ${p.total || 0}`;
+        container.appendChild(div);
+      });
+    }
+
+    function renderPlayersTable() {
+      const tbody = document.getElementById("playersBody");
+      tbody.innerHTML="";
+      players.forEach(p=>{
+        const tr=document.createElement("tr");
+        tr.innerHTML=`<td>${p.name}</td><td>${p.total || 0}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderWinsTable() {
+      const tbody = document.getElementById("winsBody");
+      tbody.innerHTML="";
+      const sorted = [...playersWins].sort((a,b)=>b.wins - a.wins);
+      sorted.forEach(p=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML=`<td>${p.name}</td><td>${p.wins}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // === merge server snapshot with local pending edits ===
+    function mergeSnapshotWithLocalBuffer(snapVal) {
+      const merged = { ...snapVal };
+      if (!Array.isArray(snapVal.players)) return merged;
+
+      const playersClone = snapVal.players.map(p => {
+        if(!p || typeof p !== 'object') return null;
+        const name = isText(p.name) ? p.name : null;
+        if (!name) return null;
+        const scores = Array.isArray(p.scores) ? p.scores.slice() : [];
+        return { name, scores, total: p.total || 0, wins: p.wins || 0 };
+      }).filter(Boolean);
+
+      Object.keys(localScoresBuffer).forEach(key => {
+        const [piStr, riStr] = key.split('_');
+        const pi = Number(piStr), ri = Number(riStr);
+        if (!Number.isFinite(pi) || !Number.isFinite(ri)) return;
+        if (!playersClone[pi]) return;
+        while (playersClone[pi].scores.length <= ri) playersClone[pi].scores.push(null);
+        const v = localScoresBuffer[key];
+        playersClone[pi].scores[ri] = (v === null || v === undefined || v === "") ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+      });
+
+      playersClone.forEach(p => {
+        p.total = Array.isArray(p.scores) ? p.scores.reduce((a,b)=> a + (Number.isFinite(b) ? b : 0), 0) : 0;
+      });
+
+      merged.players = playersClone;
+      return merged;
+    }
+
+    // === apply server snapshot intelligently (timestamp + merge) ===
+    function applySnapshotToLocal(snapVal) {
+      if(!snapVal) return;
+      const sTime = Number(snapVal.lastUpdate || 0);
+      // ignore snapshots older than or equal to lastAppliedServerTime
+      if (sTime && sTime <= lastAppliedServerTime) {
+        return;
+      }
+      applyingRemote = true;
+      try {
+        const merged = mergeSnapshotWithLocalBuffer(snapVal);
+
+        fixedPlayers = Array.isArray(merged.fixedPlayers)? merged.fixedPlayers.filter(isText): DEFAULT_FIXED_PLAYERS.slice();
+        players = [];
+        if(Array.isArray(merged.players)) {
+          players = merged.players.map(p=>{
+            if(!p||typeof p!=='object') return null;
+            const name = isText(p.name)?p.name:null;
+            if(!name) return null;
+            const scores = Array.isArray(p.scores)?p.scores.map(s=>{
+              if (s === null || s === undefined || s === "") return null;
+              const n = Number(s);
+              return Number.isFinite(n) ? n : null;
+            }):[];
+            const total = typeof p.total==='number'?p.total:scores.reduce((a,b)=>a+(Number.isFinite(b)?b:0),0);
+            const wins = typeof p.wins==='number'?p.wins:0;
+            return {name,scores,total,wins};
+          }).filter(Boolean);
+        }
+
+        if(Array.isArray(merged.playersWins)){
+          const tmp=merged.playersWins.filter(x=>x&&isText(x.name)).map(x=>({name:x.name,wins:Number.isInteger(x.wins)?x.wins:(Number(x.wins)||0)}));
+          const map={}; tmp.forEach(w=>map[w.name]=(map[w.name]||0)+(w.wins||0));
+          playersWins = Object.keys(map).map(n=>({name:n,wins:map[n]}));
+        }
+
+        recalcTotalsLocal();
+        syncPlayersWinsFromArray();
+        roundCount = (Number.isInteger(merged.roundCount)&&merged.roundCount>=0)?merged.roundCount:Math.max(0,...players.map(p=>p.scores.length));
+        rounds = Array.isArray(merged.rounds) ? merged.rounds : Array.from({length: roundCount}, (_,i)=>`جولة ${i+1}`);
+        gameEnded = Boolean(merged.gameEnded)||false;
+        editableRound = (merged.editableRound===null||Number.isInteger(merged.editableRound))?merged.editableRound:null;
+        lastGameName = isText(merged.gameName)?merged.gameName:"";
+
+        // update lastAppliedServerTime so older snapshots are ignored
+        lastAppliedServerTime = sTime || Date.now();
+
+      } finally {
+        renderPlayerChoices(); renderWinsTable();
+        if(players.length>0 && !gameEnded){
+          document.getElementById("setup").style.display="none";
+          document.getElementById("game").style.display="block";
+          document.getElementById("gameName").textContent="🎲 اللعبة: "+(lastGameName||"");
+          renderTopPlayers();renderPlayersTable();renderRounds();
+        } else {
+          document.getElementById("setup").style.display="block";
+          document.getElementById("game").style.display="none";
+          renderPlayersTable();renderRounds();
+        }
+        applyingRemote=false;
+      }
+    }
+
+    // === wins listener ===
+    function attachWinsListener() {
+      onValue(winsRef(), (snap)=>{
+        const val = snap.val() || {};
+        playersWins = Object.keys(val).map(k=>{
+          const entry = val[k];
+          if(entry === null || entry === undefined) return null;
+          if(typeof entry === 'number') return { name: k, wins: Number(entry) || 0 };
+          if(typeof entry === 'object') return { name: (entry.name || k), wins: Number(entry.wins) || 0 };
+          return null;
+        }).filter(Boolean);
+        renderWinsTable();
+      }, err => console.error("wins onValue error:", err));
+    }
+
+    // === attach listener to game (real-time) ===
+    function attachListenerToGame(gameId) {
+      if(currentUnsubscribe){try{currentUnsubscribe();}catch(e){} currentUnsubscribe=null;}
+      currentGameId=gameId;
+      currentGameRef=gameRefById(gameId);
+      try{localStorage.setItem('currentGameId',currentGameId);}catch(e){}
+      const unsub = onValue(currentGameRef,(snap)=>{
+        const val = snap.val();
+        if(!val){
+          players=[]; roundCount=0; rounds=[]; gameEnded=false; editableRound=null; lastGameName="";
+          document.getElementById("setup").style.display="block";
+          document.getElementById("game").style.display="none";
+          renderPlayerChoices(); renderPlayersTable(); renderRounds(); renderWinsTable();
+          return;
+        }
+
+        if (isUserEditing) {
+          try { window._pendingRemoteSnapshot = val; } catch(e){}
+          if (window._pendingSnapshotTimer) clearTimeout(window._pendingSnapshotTimer);
+          window._pendingSnapshotTimer = setTimeout(()=>{
+            if (!isUserEditing) {
+              applySnapshotToLocal(window._pendingRemoteSnapshot);
+              window._pendingRemoteSnapshot = null;
+            }
+          }, 350);
+        } else {
+          applySnapshotToLocal(val);
+        }
+      }, err=>console.error("onValue error:",err));
+      currentUnsubscribe = ()=>{ try{ unsub(); }catch(e){} };
+    }
+
+    // === Partial updates functions (PER-PLAYER / PER-ROUND) ===
+
+    // safe value: either number or null
+    function safeScoreVal(v){
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    // update one cell: players/{pi}/scores/{ri}
+    async function updatePlayerScoreOnServer(pi, ri, val){
+      if(!currentGameId) return;
+      const gameRef = gameRefById(currentGameId);
+      const payload = {};
+      payload[`players/${pi}/scores/${ri}`] = safeScoreVal(val);
+      payload['lastUpdate'] = Date.now();
+      payload['lastSavedBy'] = clientId;
+      try {
+        await update(gameRef, payload);
+      } catch(e){ console.error("updatePlayerScoreOnServer error:", e); }
+    }
+
+    // add a round: create rounds[r] and players/*/scores/r = null
+    async function addRoundOnServer(newRoundName){
+      if(!currentGameId) return;
+      const gameRef = gameRefById(currentGameId);
+      const newIndex = roundCount;
+      const payload = {};
+      payload[`rounds/${newIndex}`] = newRoundName;
+      payload[`roundCount`] = newIndex + 1;
+      // ensure each player's new slot is set to null (so nobody's data lost)
+      players.forEach((p, i) => {
+        payload[`players/${i}/scores/${newIndex}`] = (Array.isArray(p.scores) && p.scores[newIndex] !== undefined) ? safeScoreVal(p.scores[newIndex]) : null;
+      });
+      payload['lastUpdate'] = Date.now();
+      payload['lastSavedBy'] = clientId;
+      try {
+        await update(gameRef, payload);
+      } catch(e){ console.error("addRoundOnServer error:", e); }
+    }
+
+    // update metadata small merge (e.g., editableRound, gameEnded)
+    async function updateGameMetaOnServer(metaObj){
+      if(!currentGameId) return;
+      const gameRef = gameRefById(currentGameId);
+      const payload = { ...metaObj, lastUpdate: Date.now(), lastSavedBy: clientId };
+      try {
+        await update(gameRef, payload);
+      } catch(e){ console.error("updateGameMetaOnServer error:", e); }
+    }
+
+    // start a brand new game: it's OK to set whole object because id is new
+    async function createNewGameOnServer(gameId, payload){
+      try {
+        await set(gameRefById(gameId), payload);
+        // after initial create, no local buffer
+        localScoresBuffer = {};
+      } catch(e){ console.error("createNewGameOnServer error:", e); }
+    }
+
+    // === UI event handlers that use the partial update functions ===
+
+    function updateScoreInputsListeners() {
+      document.querySelectorAll(".score-input").forEach(input => {
+        if (input._boundChange) input.removeEventListener("change", input._boundChange);
+        if (input._boundFocus) input.removeEventListener("focus", input._boundFocus);
+        if (input._boundBlur) input.removeEventListener("blur", input._boundBlur);
+
+        const boundChange = function(e){ onScoreInputChange(e.target); };
+        const boundFocus = function(){ isUserEditing = true; };
+        const boundBlur = function(){
+          setTimeout(async ()=>{
+            isUserEditing = false;
+            // immediately persist final value of that cell to server
+            const pi = Number(input.dataset.playerIndex);
+            const ri = Number(input.dataset.roundIndex);
+            const raw = input.value;
+            await updatePlayerScoreOnServer(pi, ri, safeScoreVal(raw));
+            // if a pending remote snapshot exists, apply it
+            if (window._pendingRemoteSnapshot) {
+              if (window._pendingSnapshotTimer) clearTimeout(window._pendingSnapshotTimer);
+              window._pendingSnapshotTimer = setTimeout(()=>{
+                if (!isUserEditing) {
+                  applySnapshotToLocal(window._pendingRemoteSnapshot);
+                  window._pendingRemoteSnapshot = null;
+                }
+              }, 150);
+            }
+          }, 120);
+        };
+
+        input._boundChange = boundChange;
+        input._boundFocus = boundFocus;
+        input._boundBlur = boundBlur;
+
+        input.addEventListener("change", boundChange);
+        input.addEventListener("focus", boundFocus);
+        input.addEventListener("blur", boundBlur);
+      });
+    }
+
+    function renderRounds() {
+      const head = document.getElementById("roundsHead");
+      const body = document.getElementById("roundsBody");
+      let headHTML = "<tr><th>الجولة</th>";
+      players.forEach(p => { headHTML += `<th>${p.name}</th>`; });
+      headHTML += "<th>تعديل</th></tr>";
+      head.innerHTML = headHTML;
+
+      let totalRow = "<tr style='background:#eee; font-weight:bold;'><td>المجموع</td>";
+      players.forEach(p => { totalRow += `<td>${p.total || 0}</td>`; });
+      totalRow += "<td>-</td></tr>";
+      body.innerHTML = totalRow;
+
+      for (let r = roundCount - 1; r >= 0; r--) {
+        let row = `<tr><td>${rounds[r] || `جولة ${r+1}`}</td>`;
+        players.forEach((p, i) => {
+          if (!Array.isArray(p.scores)) p.scores = [];
+          const bufKey = `${i}_${r}`;
+          const hasBuf = Object.prototype.hasOwnProperty.call(localScoresBuffer, bufKey);
+          const val = hasBuf ? localScoresBuffer[bufKey] : (p.scores[r] !== undefined && p.scores[r] !== null ? p.scores[r] : "");
+          const disabled = (editableRound === r && !gameEnded) ? "" : "disabled";
+          row += `<td><input class="score-input" data-player-index="${i}" data-round-index="${r}" type="number" value="${val}" ${disabled}></td>`;
+        });
+        row += `<td><button class="edit-small" onclick="editRound(${r})" ${gameEnded ? "disabled" : ""}>✏️</button></td>`;
+        row += "</tr>";
+        body.innerHTML += row;
+      }
+
+      updateScoreInputsListeners();
+    }
+
+    function showToast(message, type = "success", duration = 2000) {
+      try {
+        const container = document.getElementById("toastContainer");
+        const el = document.createElement("div");
+        el.className = `toast ${type}`;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => {
+          el.style.animation = 'toast-out 300ms forwards';
+        }, duration);
+        setTimeout(() => {
+          try { container.removeChild(el); } catch(e){}
+        }, duration + 320);
+      } catch (e) { console.error("toast error", e); }
+    }
+
+    // handle input change locally and schedule per-cell server update
+    window.onScoreInputChange = function(input){
+      const pi = Number(input.dataset.playerIndex);
+      const ri = Number(input.dataset.roundIndex);
+      const raw = input.value;
+      if(!players[pi]) return;
+
+      let valueToStore = safeScoreVal(raw);
+      localScoresBuffer[`${pi}_${ri}`] = valueToStore;
+      if(!Array.isArray(players[pi].scores)) players[pi].scores = [];
+      players[pi].scores[ri] = valueToStore;
+
+      recalcTotalsLocal();
+      renderPlayersTable();
+      renderTopPlayers();
+
+      // debounce writing this particular cell
+      debouncePerCellSave(pi, ri, valueToStore);
+    };
+
+    // debounce map per cell key to avoid spamming updates for fast typing
+    const perCellTimers = {};
+    function debouncePerCellSave(pi, ri, value){
+      const key = `${pi}_${ri}`;
+      if(perCellTimers[key]) clearTimeout(perCellTimers[key]);
+      perCellTimers[key] = setTimeout(async ()=>{
+        await updatePlayerScoreOnServer(pi, ri, value);
+        delete perCellTimers[key];
+        // successful persist -> remove from local buffer
+        delete localScoresBuffer[key];
+      }, 600);
+    }
+
+    window.editRound = function(r){
+      editableRound = r;
+      renderRounds();
+    };
+
+    // === DOM elements ===
+    const gameSelect = document.getElementById("gameSelect");
+    const newGameInput = document.getElementById("newGameInput");
+    const addGameBtn = document.getElementById("addGameBtn");
+    const playerChoicesDiv = document.getElementById("playerChoices");
+    const newPlayerInput = document.getElementById("newPlayerInput");
+    const addPlayerBtn = document.getElementById("addPlayerBtn");
+    const startGameBtn = document.getElementById("startGameBtn");
+    const addRoundBtn = document.getElementById("addRoundBtn");
+    const endGameBtn = document.getElementById("endGameBtn");
+    const resetGameBtn = document.getElementById("resetGameBtn");
+    const clearWinsBtn = document.getElementById("clearWinsBtn");
+    const showRoomsBtn = document.getElementById("showRoomsBtn");
+    const roomsModal = document.getElementById("roomsModal");
+    const closeRoomsBtn = document.getElementById("closeRoomsBtn");
+    const roomsList = document.getElementById("roomsList");
+
+    addGameBtn.onclick = ()=>{ const val = newGameInput.value.trim(); if(!val) return; const opt = document.createElement("option"); opt.value=val; opt.textContent=val; gameSelect.appendChild(opt); gameSelect.value=val; newGameInput.value=""; };
+
+    addPlayerBtn.onclick = async ()=>{
+      const val = newPlayerInput.value.trim(); if(!val) return;
+      if(!fixedPlayers.includes(val)) fixedPlayers.push(val);
+      renderPlayerChoices();
+      newPlayerInput.value="";
+      try { await update(metaRef(), { fixedPlayers }); } catch(e){ console.error("Error saving meta:", e); }
+    };
+
+    // create new game (safe to set because it's a new id)
+    startGameBtn.onclick = async ()=>{
+      const selected = [...playerChoicesDiv.querySelectorAll("input[type=checkbox]:checked")].map(x=>x.value.trim()).filter(isText);
+      if(selected.length<2){ alert("اختر لاعبين على الأقل"); return; }
+      const dateStr = todayDateStr();
+      let nameBase = `${gameSelect.value}_${selected.join("_")}_${dateStr}`;
+      const id = sanitizeForKey(nameBase + "_" + Date.now());
+      currentGameId = id;
+      lastGameName = nameBase;
+      players = selected.map(n=>({name:n,scores:[],total:0,wins:0}));
+      players.forEach(p=>p.scores = []);
+      roundCount=0; rounds = []; editableRound=null; gameEnded=false;
+      currentGameRef = gameRefById(currentGameId);
+
+      // build initial payload and write (ok to set entire object for a new game)
+      const payload = {
+        fixedPlayers,
+        players: players.map(p=>({ name: p.name, scores: [], total:0, wins:0 })),
+        playersWins: playersWins,
+        roundCount: 0,
+        rounds: [],
+        gameEnded: false,
+        editableRound: null,
+        gameName: lastGameName,
+        lastUpdate: Date.now(),
+        lastSavedBy: clientId
+      };
+      await createNewGameOnServer(currentGameId, payload);
+      attachListenerToGame(currentGameId);
+      renderPlayerChoices();
+      document.getElementById("setup").style.display="none";
+      document.getElementById("game").style.display="block";
+      document.getElementById("gameName").textContent="🎲 اللعبة: "+lastGameName;
+      renderTopPlayers(); renderPlayersTable(); renderRounds();
+      showToast("✅ تم بدء الجيم بنجاح", "success", 2000);
+    };
+
+    addRoundBtn.onclick = async ()=>{
+      // update local model quickly for immediate UI feedback
+      players.forEach(p=>{ if(!Array.isArray(p.scores)) p.scores=[]; p.scores.push(null); });
+      const newIndex = roundCount;
+      roundCount++;
+      rounds.push(`جولة ${newIndex+1}`);
+      editableRound = newIndex;
+      renderRounds();
+      // persist change per-player/per-round
+      await addRoundOnServer(rounds[newIndex]);
+    };
+
+    // reset game: clears players' scores and rounds (keeps game metadata)
+    resetGameBtn.onclick = async ()=>{
+      if(!currentGameId){ alert("لا يوجد جيم مفتوح لإعادة تعيينه"); return; }
+      if(!confirm("هل تريد فعلاً إعادة تعيين هذا الجيم (يمسح الجولات والسكورات)؟")) return;
+      // build payload to zero only the players' scores and rounds
+      const payload = {};
+      players.forEach((p,i)=>{
+        payload[`players/${i}/scores`] = [];
+        payload[`players/${i}/total`] = 0;
+      });
+      payload['roundCount'] = 0;
+      payload['rounds'] = [];
+      payload['editableRound'] = null;
+      payload['gameEnded'] = false;
+      payload['lastUpdate'] = Date.now();
+      payload['lastSavedBy'] = clientId;
+      try {
+        await update(gameRefById(currentGameId), payload);
+        localScoresBuffer = {};
+        showToast("✅ تم إعادة تعيين الجيم", "info", 1800);
+      } catch(e){ console.error("resetGame error", e); alert("فشل في إعادة التعيين"); }
+    };
+
+    async function incrementWinsForWinners(winnerNames){
+      if(!Array.isArray(winnerNames) || winnerNames.length===0) return;
+      const promises = winnerNames.map(name=>{
+        const key = sanitizeForKey(name);
+        const r = ref(db, `playersWins/${key}`);
+        return runTransaction(r, (current)=>{
+          if(current === null || current === undefined) return { name: name, wins: 1 };
+          if(typeof current === 'number') return { name: name, wins: Number(current) + 1 };
+          if(typeof current === 'object'){ const currentWins = Number(current.wins) || 0; return { name: (current.name || name), wins: currentWins + 1 }; }
+          return { name: name, wins: 1 };
+        }).catch(e=>{ console.error("increment win error for", name, e); });
+      });
+      await Promise.all(promises);
+    }
+
+    endGameBtn.onclick = async ()=>{
+      if(!currentGameId){ alert("لا يوجد جيم مفتوح"); return; }
+      if(!confirm("هل أنت متأكد من إنهاء الجيم؟")) return;
+      gameEnded=true;
+      editableRound=null;
+      recalcTotalsLocal();
+      const maxTotal = Math.max(...players.map(p=>p.total||0));
+      const winners = players.filter(p=>p.total===maxTotal).map(p=>p.name);
+      players.filter(p=>winners.includes(p.name)).forEach(p=>p.wins = (Number(p.wins)||0) + 1);
+      await incrementWinsForWinners(winners);
+      renderPlayersTable(); renderTopPlayers(); renderWinsTable();
+      showToast(`🎉 الفائز${winners.length>1?'ون':''}: ${winners.join(", ")}`, "info", 3500);
+      // update metadata on server (gameEnded and players' wins already updated via incrementWinsForWinners)
+      await updateGameMetaOnServer({ gameEnded: true, editableRound: null });
+    };
+
+    clearWinsBtn.onclick = async ()=>{
+      const pwd = prompt("ادخل الرقم السري لمسح بيانات الفوز:");
+      if (pwd === null) return;
+      if (pwd !== "112233") { alert("رقم سري خاطئ!"); return; }
+      if(!confirm("هل أنت متأكد من مسح جميع بيانات الفوز؟")) return;
+      try {
+        await remove(winsRef());
+        playersWins = [];
+        renderWinsTable();
+        showToast("✅ تم مسح بيانات الفوز بنجاح!", "warn", 2200);
+      } catch (e) {
+        console.error("Firebase error:", e);
+        alert("❌ فشل في مسح بيانات الفوز!");
+      }
+    };
+
+    function deleteGamePrompt(gameId){
+      const pwd = prompt("ادخل الرقم السري لحذف الجيم:");
+      if(pwd === null) return;
+      if(pwd!=="112233"){ alert("رقم سري خاطئ!"); return; }
+      remove(gameRefById(gameId));
+    }
+
+    showRoomsBtn.onclick = async ()=>{
+      roomsModal.style.display="flex";
+      try {
+        const snap = await get(ref(db,'games'));
+        const val = snap.val();
+        roomsList.innerHTML="";
+        if(val){
+          Object.keys(val).sort((a,b)=>b.localeCompare(a)).forEach(k=>{
+            const g = val[k] || {};
+            const div = document.createElement("div");
+            const playersNames = (Array.isArray(g.players)? g.players.map(p=>p && p.name).filter(Boolean) : []);
+            div.innerHTML = `<div style="flex:1"><span class="game-title">${g.gameName||k}</span> <span class="muted">(${playersNames.join(", ")})</span></div>`;
+            const controls = document.createElement("div");
+            controls.style.display = "flex";
+            controls.style.gap = "6px";
+            if(!g.gameEnded){
+              const openBtn = document.createElement("button");
+              openBtn.className="small"; openBtn.textContent = "فتح";
+              openBtn.onclick = ()=>{ attachListenerToGame(k); roomsModal.style.display="none"; };
+              controls.appendChild(openBtn);
+            }
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "delete-small"; deleteBtn.textContent = "🗑️";
+            deleteBtn.onclick = ()=>{ deleteGamePrompt(k); };
+            controls.appendChild(deleteBtn);
+            div.appendChild(controls);
+            roomsList.appendChild(div);
+          });
+        } else {
+          roomsList.innerHTML = "<div class='muted'>لا توجد جيمات حالياً</div>";
+        }
+      } catch(e){
+        console.error("Error fetching games list:", e);
+        roomsList.innerHTML = "<div class='muted'>حدث خطأ أثناء جلب الجيمات</div>";
+      }
+    };
+
+    closeRoomsBtn.onclick = ()=>{roomsModal.style.display="none";};
+
+    // debounce wrapper for other saves (not per-cell)
+    let saveTimeout;
+    function saveToDBDebounced(delay = 500) {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(()=>updateGameMetaOnServer({}), delay);
+    }
+
+    // init
+    renderPlayerChoices();
+    renderWinsTable();
+    attachWinsListener();
+    const savedId = localStorage.getItem('currentGameId');
+    if(savedId) attachListenerToGame(savedId);
+  </script>
+</body>
+</html>
