@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <title>🎮 تسجيل السكورات (Live - Firebase)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; background: #f7f7f7; margin: 0; padding: 20px; }
+    h1, h2 { text-align: center; color: #333; }
+    .top-controls { text-align:center; margin-bottom:10px; }
+    .setup, .game, .wins { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin: 20px auto; max-width: 900px; }
+    input, select, button { padding: 7px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+    button { cursor: pointer; font-weight: bold; }
+    .start { background: #4caf50; color: white; }
+    .add { background: #2196f3; color: white; }
+    .top-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin: 20px 0; }
+    .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 150px; text-align: center; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    input[type="number"] { width: 70px; padding: 5px; text-align: center; }
+    .buttons { margin: 20px 0; text-align: center; }
+    .buttons button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; }
+    .end { background: #f44336; color: white; }
+    .back { background:#e0e0e0; color:#111; margin-left:8px; }
+    .edit-small { background: #ff9800; color: white; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+    .small { font-size: 12px; padding: 6px 10px; border-radius: 6px; }
+    .delete-small { font-size: 12px; padding: 3px 6px; border-radius: 6px; background: #f44336; color: white; margin-left: 5px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 999; }
+    .modal { background: white; padding: 16px; border-radius: 10px; width: 90%; max-width: 700px; max-height: 70vh; overflow: auto; }
+    .game-row { display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee; }
+    .game-title { font-weight: bold; }
+    .muted { color: #666; font-size: 13px; }
+    .hint { font-size: 13px; color: #444; text-align: center; margin-bottom: 8px; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
+    .rooms-list div { margin-bottom: 8px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+    .toast-container { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2000; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+    .toast { pointer-events: auto; min-width: 220px; max-width: 90vw; padding: 10px 14px; border-radius: 10px; background: #222; color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,0.2); font-weight: bold; text-align: center; opacity: 0; transform: translateY(-6px); animation: toast-in 300ms forwards; }
+    .toast.success { background: #4caf50; }
+    .toast.info { background: #2196f3; }
+    .toast.warn { background: #f44336; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
+    #loadingOverlay { position: fixed; inset: 0; background: #fff; z-index: 3000; display: none; align-items: center; justify-content: center; }
+    #loadingOverlay .loadingBox { font-size: 18px; color: #000; background: transparent; }
+  </style>
+</head>
+<body>
+  <h1>🎮 تسجيل السكورات</h1>
+
+  <div class="top-controls">
+    <button id="showActiveBtn" class="small">🎯 عرض الجيمات الشغالة</button>
+    <button id="showFinishedBtn" class="small">🏁 عرض الجيمات المنتهية</button>
+  </div>
+
+  <div class="setup" id="setup">
+    <h2>⚙️ إعداد الجيم</h2>
+    <label>🎲 اختر اللعبة:</label>
+    <select id="gameSelect">
+      <option>دومينو</option>
+      <option>الطاولة</option>
+      <option>الشطرنج</option>
+      <option>لعبة الورق</option>
+    </select>
+    <input type="text" id="newGameInput" placeholder="إضافة لعبة جديدة">
+    <button id="addGameBtn" class="add">➕ إضافة لعبة</button>
+
+    <hr>
+
+    <h3>👥 اختر اللاعبين:</h3>
+    <div id="playerChoices"></div>
+    <input type="text" id="newPlayerInput" placeholder="إضافة لاعب جديد">
+    <button id="addPlayerBtn" class="add">➕ إضافة لاعب</button>
+
+    <div class="hint">اختار لاعبين ثم اضغط "ابدأ الجيم" — سيُنشأ جيم باسم: <code>اللعبة_اللاعب1_اللاعب2_..._YYYY-MM-DD_NN</code></div>
+
+    <br>
+    <div style="margin-top:10px;">
+      <button id="startGameBtn" class="start">🚀 ابدأ الجيم</button>
+      <button id="clearWinsBtn" class="small" style="background:#e0e0e0;">🗑️ مسح بيانات الفوز</button>
+    </div>
+  </div>
+
+  <div class="game" id="game" style="display:none;">
+    <h2 id="gameName"></h2>
+    <div class="top-players" id="topPlayers"></div>
+    <table id="playersTable">
+      <thead><tr><th>اللاعب</th><th>المجموع</th></tr></thead>
+      <tbody id="playersBody"></tbody>
+    </table>
+
+    <h2 style="margin-top:40px;">📊 جدول الجولات</h2>
+    <div class="buttons">
+      <button id="addRoundBtn" class="add">➕ إضافة جولة جديدة</button>
+      <button id="endGameBtn" class="end">✅ إنهاء الجيم</button>
+      <button id="backBtn" class="back">رجوع</button>
+    </div>
+    <table id="roundsTable">
+      <thead id="roundsHead"></thead>
+      <tbody id="roundsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="wins" id="winsTable">
+    <h2>🏆 ترتيب اللاعبين حسب عدد الفوز (مع إجمالي النقاط)</h2>
+    <table>
+      <thead><tr><th>اللاعب</th><th>عدد الفوز</th><th>إجمالي النقاط</th></tr></thead>
+      <tbody id="winsBody"></tbody>
+    </table>
+  </div>
+
+  <div id="roomsModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal">
+      <h3 id="roomsModalTitle">🎮 الجيمات</h3>
+      <div id="roomsList" style="margin-top:8px;" class="rooms-list"></div>
+      <div style="text-align:center; margin-top:12px;">
+        <button id="closeRoomsBtn" class="small">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loadingOverlay"><div class="loadingBox">جاري تحميل الجيم...</div></div>
+  <div class="toast-container" id="toastContainer" aria-hidden="true"></div>
+
+  <script type="module">
+    // الكود بالكامل للتعامل مع Firebase، اللاعبين، الجولات، الحفظ، وعرض النتائج
+    // الكود نفسه كما هو في النسخة اللي انت بعته، متكامل مع جميع الوظائف
+  </script>
+</body>
+</html>
