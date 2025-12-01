@@ -1,0 +1,430 @@
+<script>
+  let players = [];
+  let fixedPlayers = [];
+  let roundCount = 0;
+  let editableRound = null;
+  let gameEnded = false;
+  let readOnlyView = false;
+  let currentGameId = null;
+  let currentGameRef = null;
+  let localScoresBuffer = {};
+  let editLock = {};
+  let isUserEditing = false;
+  let lastGameName = "";
+  let lastLocalSaveMeta = null;
+  let saveTimer = null;
+  const CLIENT_ID = Math.random().toString(36).substring(2,10);
+  const ADMIN_PASSWORD = "1234"; // عدل الرقم السري هنا
+  const db = firebase.database(); // تأكد انك رابط Firebase
+  const winsRef = ()=> ref(db, 'playersWins');
+
+  function isText(val){ return typeof val === 'string' && val.trim() !== ""; }
+  function todayDateStr(){
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+  }
+  function sanitizeForKey(str){
+    return str.replace(/[^a-zA-Z0-9_\-]/g,"_");
+  }
+
+  function recalcTotalsLocal(){
+    players.forEach(p=>{
+      if(!Array.isArray(p.scores)) p.scores=[];
+      p.total = p.scores.reduce((a,b)=>a + (Number.isFinite(b)?b:0),0);
+    });
+  }
+
+  function resetLocalEditingState(){
+    localScoresBuffer={};
+    editLock={};
+    isUserEditing=false;
+    editableRound=null;
+  }
+
+  function renderPlayerChoices(){
+    const div = document.getElementById("playerChoices");
+    div.innerHTML = "";
+    fixedPlayers.forEach(name=>{
+      const id = "chk_"+sanitizeForKey(name);
+      div.innerHTML += `<label><input type="checkbox" id="${id}" value="${name}">${name}</label> `;
+    });
+  }
+
+  function renderPlayersTable(){
+    const table = document.getElementById("playersTable");
+    let html="<tr><th>اللاعب</th><th>المجموع</th><th>عدد الفوز</th></tr>";
+    players.forEach(p=>{
+      html+=`<tr><td>${p.name}</td><td>${p.total||0}</td><td>${p.wins||0}</td></tr>`;
+    });
+    table.innerHTML = html;
+  }
+
+  function renderTopPlayers(){
+    const table = document.getElementById("topPlayersTable");
+    const sorted = [...players].sort((a,b)=>b.total - a.total);
+    let html="<tr><th>الترتيب</th><th>اللاعب</th><th>المجموع</th></tr>";
+    sorted.forEach((p,i)=>{
+      html+=`<tr><td>${i+1}</td><td>${p.name}</td><td>${p.total||0}</td></tr>`;
+    });
+    table.innerHTML = html;
+  }
+
+  function refreshWinsAndTotals(){
+    renderPlayersTable();
+    renderTopPlayers();
+  }
+
+  async function attachWinsListener(){
+    try {
+      const snap = await get(winsRef());
+      const val = snap.val() || {};
+      playersWins = Object.keys(val).map(k=>({name:k,wins:Number(val[k].wins||0)}));
+      renderWinsTable();
+    } catch(e){
+      console.error("attachWinsListener error:",e);
+    }
+  }
+
+  function renderWinsTable(){
+    const table = document.getElementById("winsTable");
+    if(!playersWins) playersWins=[];
+    let html="<tr><th>اللاعب</th><th>عدد الفوز</th></tr>";
+    playersWins.forEach(p=>{ html+=`<tr><td>${p.name}</td><td>${p.wins||0}</td></tr>`; });
+    table.innerHTML=html;
+  }
+
+  function applySnapshotToLocal(val, forceReadOnly=false){
+    if(!val) return;
+    players = Array.isArray(val.players) ? val.players.map(p=>({...p})) : [];
+    roundCount = Number.isFinite(Number(val.roundCount)) ? val.roundCount : (players.length ? Math.max(...players.map(p=>p.scores.length)) : 0);
+    editableRound = null;
+    gameEnded = !!val.gameEnded;
+    readOnlyView = forceReadOnly || gameEnded;
+    lastGameName = val.gameName || lastGameName || "";
+    renderPlayerChoices();
+    renderPlayersTable();
+    renderRounds();
+    refreshWinsAndTotals();
+  }
+</script>
+<script>
+  let applyingRemote = false;
+  let currentUnsubscribe = null;
+
+  function attachListenerToGame(gameId){
+    if(currentUnsubscribe) currentUnsubscribe();
+    const gameRef = ref(db, `games/${gameId}`);
+    const unsub = onValue(gameRef, (snapshot)=>{
+      const val = snapshot.val();
+      if(!val) return;
+      if(applyingRemote) return;
+      if(Object.keys(editLock).length>0){
+        window._pendingRemoteSnapshot = val;
+        if(window._pendingSnapshotTimer) clearTimeout(window._pendingSnapshotTimer);
+        window._pendingSnapshotTimer = setTimeout(()=>{
+          if(Object.keys(editLock).length===0){
+            applySnapshotToLocal(window._pendingRemoteSnapshot);
+            window._pendingRemoteSnapshot=null;
+          } else {
+            if(window._pendingSnapshotTimer) clearTimeout(window._pendingSnapshotTimer);
+            window._pendingSnapshotTimer = setTimeout(()=>{
+              if(Object.keys(editLock).length===0){
+                applySnapshotToLocal(window._pendingRemoteSnapshot);
+                window._pendingRemoteSnapshot=null;
+              }
+            },300);
+          }
+        },250);
+      } else {
+        applySnapshotToLocal(val);
+      }
+    }, err=>{ console.error("onValue error:",err); });
+    currentUnsubscribe = ()=>{ try{ unsub(); }catch(e){} };
+  }
+
+  async function saveToDB(){
+    if(applyingRemote) return;
+    if(!currentGameId || !currentGameRef) return;
+    recalcTotalsLocal();
+    const localPlayersForMerge = players.map(p=>{
+      const safeScores = Array.isArray(p.scores) ? p.scores.map(s=>(Number.isFinite(s)?s:null)) : [];
+      return {...p, scores:safeScores, total:p.total||0};
+    });
+    const saveId = `${CLIENT_ID}_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+    const payloadMeta = {
+      fixedPlayers, roundCount, gameEnded, editableRound, gameName:lastGameName,
+      lastUpdate:Date.now(), lastModifiedBy:CLIENT_ID, saveId
+    };
+    try{
+      await runTransaction(currentGameRef, current=>{
+        const base = current && typeof current==='object' ? {...current} : {};
+        const remotePlayers = Array.isArray(base.players) ? base.players.slice() : [];
+        const mergedPlayers = [];
+        const maxPlayers = Math.max(remotePlayers.length, localPlayersForMerge.length);
+        for(let idx=0; idx<maxPlayers; idx++){
+          const rp = remotePlayers[idx]||{};
+          const lp = localPlayersForMerge[idx]||{};
+          const name = isText(rp.name) ? rp.name : (isText(lp.name)?lp.name:`player_${idx}`);
+          const scoresRemote = Array.isArray(rp.scores)?rp.scores.slice():[];
+          const scoresLocal = Array.isArray(lp.scores)?lp.scores.slice():[];
+          const maxLen = Math.max(scoresRemote.length, scoresLocal.length);
+          const finalScores = [];
+          for(let i=0;i<maxLen;i++){
+            const bufKey = `${idx}_${i}`;
+            if(Object.prototype.hasOwnProperty.call(localScoresBuffer,bufKey)){
+              const v = localScoresBuffer[bufKey];
+              finalScores[i] = Number.isFinite(v)?v:null;
+            } else if(i<scoresRemote.length && scoresRemote[i]!==undefined && scoresRemote[i]!==null){
+              const rn = Number(scoresRemote[i]);
+              finalScores[i] = Number.isFinite(rn)?rn:null;
+            } else if(i<scoresLocal.length && scoresLocal[i]!==undefined && scoresLocal[i]!==null){
+              const ln = Number(scoresLocal[i]);
+              finalScores[i] = Number.isFinite(ln)?ln:null;
+            } else finalScores[i]=null;
+          }
+          const total = finalScores.reduce((a,b)=>a+(Number.isFinite(b)?b:0),0);
+          const winsVal = (rp && rp.wins)?(Number.isFinite(Number(rp.wins))?Number(rp.wins):0):((lp && Number.isFinite(Number(lp.wins)))?Number(lp.wins):0);
+          mergedPlayers[idx] = {name,scores:finalScores,total,wins:winsVal};
+        }
+        const winsMap={};
+        if(Array.isArray(base.playersWins)){
+          base.playersWins.forEach(w=>{ if(w && w.name) winsMap[w.name]=(winsMap[w.name]||0)+(Number(w.wins)||0); });
+        }
+        (playersWins||[]).forEach(w=>{ winsMap[w.name]=(winsMap[w.name]||0)+(Number(w.wins)||0); });
+        mergedPlayers.forEach(p=>{ winsMap[p.name]=(winsMap[p.name]||0)+(Number(p.wins)||0); });
+        const playersWinsArr = Object.keys(winsMap).map(n=>({name:n,wins:winsMap[n]}));
+
+        base.fixedPlayers = Array.isArray(fixedPlayers)?fixedPlayers.slice():base.fixedPlayers;
+        base.roundCount = Number.isFinite(Number(payloadMeta.roundCount))?payloadMeta.roundCount:(Array.isArray(mergedPlayers)?Math.max(0,...mergedPlayers.map(p=>p.scores.length)):0);
+        base.gameEnded = !!payloadMeta.gameEnded;
+        base.editableRound = payloadMeta.editableRound===null?null:(Number.isInteger(payloadMeta.editableRound)?payloadMeta.editableRound:base.editableRound);
+        base.gameName = payloadMeta.gameName||base.gameName||lastGameName||"";
+        base.lastUpdate = payloadMeta.lastUpdate||Date.now();
+        base.lastModifiedBy = payloadMeta.lastModifiedBy||CLIENT_ID;
+        base.saveId = payloadMeta.saveId||saveId;
+        base.players = mergedPlayers;
+        base.playersWins = playersWinsArr;
+        base.status = (base.gameEnded || base.status==='finished')?'finished':'active';
+        return base;
+      });
+      lastLocalSaveMeta = {saveId,timestamp:payloadMeta.lastUpdate};
+      localScoresBuffer={};
+      refreshWinsAndTotals();
+    } catch(e){ console.error("Transaction save failed:",e); }
+  }
+
+  function saveToDBDebounced(delay=300){
+    if(applyingRemote) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{ saveToDB(); }, delay);
+  }
+
+  function updateScoreInputsListeners(){
+    document.querySelectorAll(".score-input").forEach(input=>{
+      if(input._boundChange) input.removeEventListener("change",input._boundChange);
+      if(input._boundFocus) input.removeEventListener("focus",input._boundFocus);
+      if(input._boundBlur) input.removeEventListener("blur",input._boundBlur);
+      if(input._boundKeydown) input.removeEventListener("keydown",input._boundKeydown);
+
+      const boundChange=function(e){ onScoreInputChange(e.target); };
+      const boundFocus=function(e){
+        const pi=Number(e.target.dataset.playerIndex);
+        const ri=Number(e.target.dataset.roundIndex);
+        editLock[`${pi}_${ri}`]=true;
+      };
+      const boundBlur=function(e){
+        const pi=Number(e.target.dataset.playerIndex);
+        const ri=Number(e.target.dataset.roundIndex);
+        const key = `${pi}_${ri}`;
+        setTimeout(()=>{
+          delete editLock[key];
+          saveToDB();
+          if(window._pendingRemoteSnapshot && Object.keys(editLock).length===0){
+            if(window._pendingSnapshotTimer) clearTimeout(window._pendingSnapshotTimer);
+            applySnapshotToLocal(window._pendingRemoteSnapshot);
+            window._pendingRemoteSnapshot=null;
+          }
+        },120);
+      };
+      const boundKeydown=function(e){ if(e.key==='Enter'){ e.target.blur(); } };
+
+      input._boundChange=boundChange;
+      input._boundFocus=boundFocus;
+      input._boundBlur=boundBlur;
+      input._boundKeydown=boundKeydown;
+
+      input.addEventListener("change",boundChange);
+      input.addEventListener("focus",boundFocus);
+      input.addEventListener("blur",boundBlur);
+      input.addEventListener("keydown",boundKeydown);
+    });
+  }
+
+  function renderRounds(){
+    const head = document.getElementById("roundsHead");
+    const body = document.getElementById("roundsBody");
+    let headHTML="<tr><th>الجولة</th>";
+    players.forEach(p=>{ headHTML+=`<th>${p.name}</th>`; });
+    headHTML+="<th>تعديل</th></tr>";
+    head.innerHTML=headHTML;
+
+    let totalRow="<tr style='background:#eee;font-weight:bold;'><td>المجموع</td>";
+    players.forEach(p=>{ totalRow+=`<td>${p.total||0}</td>`; });
+    totalRow+="<td>-</td></tr>";
+    body.innerHTML=totalRow;
+
+    for(let r=roundCount-1;r>=0;r--){
+      let row=`<tr><td>جولة ${r+1}</td>`;
+      players.forEach((p,i)=>{
+        if(!Array.isArray(p.scores)) p.scores=[];
+        const bufKey = `${i}_${r}`;
+        const val = Object.prototype.hasOwnProperty.call(localScoresBuffer,bufKey)?
+                    (localScoresBuffer[bufKey]===null?"":localScoresBuffer[bufKey]) :
+                    (p.scores[r]!==undefined && p.scores[r]!==null?p.scores[r]:"");
+        const disabled = (editableRound===r && !gameEnded && !readOnlyView)?"":"disabled";
+        row+=`<td><input class="score-input" type="number" data-player-index="${i}" data-round-index="${r}" value="${val}" ${disabled}></td>`;
+      });
+      row+=`<td><button class="edit-small" onclick="editRound(${r})" ${gameEnded||readOnlyView?"disabled":""}>✏️</button></td></tr>`;
+      body.innerHTML+=row;
+    }
+    updateScoreInputsListeners();
+  }
+
+  window.onScoreInputChange=function(input){
+    const pi=Number(input.dataset.playerIndex);
+    const ri=Number(input.dataset.roundIndex);
+    let valueToStore=null;
+    const raw=input.value;
+    if(raw!==null && raw!==undefined && String(raw).trim()!==""){
+      const parsed=Number(raw);
+      valueToStore = Number.isFinite(parsed)?parsed:null;
+    }
+    localScoresBuffer[`${pi}_${ri}`]=valueToStore;
+    if(!Array.isArray(players[pi].scores)) players[pi].scores=[];
+    players[pi].scores[ri]=valueToStore;
+    recalcTotalsLocal();
+    renderPlayersTable();
+    renderTopPlayers();
+    saveToDBDebounced();
+  };
+
+  window.editRound=function(r){
+    if(readOnlyView) return;
+    editableRound=r;
+    renderRounds();
+  };
+</script>
+<script>
+  function startNewGame(gameNameInput){
+    const name = (gameNameInput||"").trim() || `Game_${Date.now()}`;
+    const newGameRef = push(ref(db,'games'));
+    currentGameId = newGameRef.key;
+    currentGameRef = newGameRef;
+    players = fixedPlayers.map(p=>({name:p,scores:[],total:0,wins:0}));
+    roundCount = 0;
+    gameEnded = false;
+    editableRound = null;
+    localScoresBuffer={};
+    lastGameName=name;
+    renderRounds();
+    attachListenerToGame(currentGameId);
+    saveToDB();
+    renderGamesList();
+  }
+
+  function addRound(){
+    if(gameEnded || readOnlyView) return;
+    roundCount++;
+    players.forEach(p=>{
+      if(!Array.isArray(p.scores)) p.scores=[];
+      p.scores.push(null);
+    });
+    renderRounds();
+    saveToDBDebounced();
+  }
+
+  function endGame(){
+    if(gameEnded) return;
+    gameEnded=true;
+    players.forEach(p=>{
+      if(!Array.isArray(p.scores)) p.scores=[];
+    });
+    editableRound=null;
+    renderRounds();
+    saveToDBDebounced();
+    renderGamesList();
+  }
+
+  function resetWins(){
+    players.forEach(p=>{ p.wins=0; });
+    saveToDBDebounced();
+    renderPlayersTable();
+    renderTopPlayers();
+  }
+
+  function renderGamesList(){
+    const container = document.getElementById("gamesList");
+    container.innerHTML="";
+    const listRef = ref(db,'games');
+    onValue(listRef, snapshot=>{
+      const val = snapshot.val();
+      container.innerHTML="";
+      if(!val) return;
+      Object.keys(val).forEach(gid=>{
+        const g = val[gid];
+        const btn = document.createElement("button");
+        btn.textContent = `${g.gameName||gid} ${g.gameEnded?'✅':'🟢'}`;
+        btn.disabled = gameEnded && gid===currentGameId;
+        btn.onclick = ()=>{ 
+          currentGameId = gid;
+          currentGameRef = ref(db, `games/${gid}`);
+          players = Array.isArray(g.players)?g.players.map(p=>({...p})):[];
+          roundCount = g.roundCount||0;
+          gameEnded = !!g.gameEnded;
+          editableRound = g.editableRound||null;
+          lastGameName = g.gameName||`Game_${gid}`;
+          localScoresBuffer={};
+          attachListenerToGame(gid);
+          renderRounds();
+        };
+        container.appendChild(btn);
+      });
+    });
+  }
+
+  function renderPlayersTable(){
+    const table = document.getElementById("playersTableBody");
+    if(!table) return;
+    table.innerHTML="";
+    players.forEach((p,i)=>{
+      const row=document.createElement("tr");
+      row.innerHTML=`<td>${p.name}</td><td>${p.total||0}</td><td>${p.wins||0}</td>`;
+      table.appendChild(row);
+    });
+  }
+
+  function recalcTotalsLocal(){
+    players.forEach(p=>{
+      if(!Array.isArray(p.scores)) p.scores=[];
+      p.total = p.scores.reduce((a,b)=>a+(Number.isFinite(b)?b:0),0);
+    });
+    renderPlayersTable();
+  }
+
+  function renderTopPlayers(){
+    const topContainer=document.getElementById("topPlayers");
+    if(!topContainer) return;
+    const sorted = players.slice().sort((a,b)=>b.total-(a.total));
+    topContainer.innerHTML="";
+    sorted.forEach(p=>{
+      const div=document.createElement("div");
+      div.textContent=`${p.name}: ${p.total||0}`;
+      topContainer.appendChild(div);
+    });
+  }
+
+  // Initialize
+  document.addEventListener("DOMContentLoaded",()=>{
+    renderGamesList();
+  });
+</script>
