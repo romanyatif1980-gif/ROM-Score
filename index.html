@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎮 تسجيل السكورات - Tana & Rona</title>
+<style>
+  body {
+    font-family: "Arial", sans-serif;
+    direction: rtl;
+    background: #fdfcf6;
+    color: #333;
+    margin: 0;
+    padding: 0;
+  }
+
+  header {
+    background: #d4af37;
+    color: white;
+    text-align: center;
+    padding: 15px;
+    font-size: 24px;
+    font-weight: bold;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+  }
+
+  main {
+    padding: 20px;
+    max-width: 1200px;
+    margin: auto;
+  }
+
+  .game-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+
+  .game-table th, .game-table td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .game-table th {
+    background: #d4af37;
+    color: white;
+  }
+
+  .btn {
+    background: #d4af37;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    cursor: pointer;
+    margin: 5px;
+    border-radius: 5px;
+    transition: 0.2s;
+  }
+
+  .btn:hover {
+    background: #b8972b;
+  }
+
+  .toast {
+    visibility: hidden;
+    min-width: 200px;
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    border-radius: 5px;
+    padding: 10px;
+    position: fixed;
+    z-index: 1000;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .toast.show {
+    visibility: visible;
+    animation: fadein 0.5s, fadeout 0.5s 2.5s;
+  }
+
+  @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+  @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+</style>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/11.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/11.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<header>
+  🎮 Tana & Rona - تسجيل السكورات
+</header>
+
+<main>
+  <div>
+    <button class="btn" onclick="createNewGame()">إنشاء جيم جديد</button>
+    <button class="btn" onclick="addNewPlayer()">إضافة لاعب جديد</button>
+  </div>
+
+  <h2>قائمة الجيمات</h2>
+  <table class="game-table" id="gamesTable">
+    <thead>
+      <tr>
+        <th>اسم الجيم</th>
+        <th>عدد اللاعبين</th>
+        <th>الحالة</th>
+        <th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>قائمة اللاعبين</h2>
+  <table class="game-table" id="playersTable">
+    <thead>
+      <tr>
+        <th>اللاعب</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  // إعداد Firebase
+  const firebaseConfig = {
+    apiKey: "ضع_مفتاحك_هنا",
+    authDomain: "مشروعك.firebaseapp.com",
+    databaseURL: "https://مشروعك.firebaseio.com",
+    projectId: "مشروعك",
+    storageBucket: "مشروعك.appspot.com",
+    messagingSenderId: "XXXX",
+    appId: "XXXX"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // دوال Toast
+  function showToast(msg) {
+    const toast = document.getElementById("toast");
+    toast.textContent = msg;
+    toast.className = "toast show";
+    setTimeout(() => { toast.className = "toast"; }, 3000);
+  }
+
+  // دوال Game
+  async function createNewGame() {
+    const gameName = prompt("ادخل اسم الجيم:");
+    if (!gameName) return;
+    const newGameRef = db.ref("games").push();
+    await newGameRef.set({
+      name: gameName,
+      status: "جاري",
+      players: {}
+    });
+    showToast("تم إنشاء الجيم بنجاح!");
+  }
+
+  async function addNewPlayer() {
+    const playerName = prompt("ادخل اسم اللاعب:");
+    if (!playerName) return;
+    const newPlayerRef = db.ref("players").push();
+    await newPlayerRef.set({
+      name: playerName,
+      totalScore: 0
+    });
+    showToast("تم إضافة اللاعب!");
+  }
+
+  // استدعاء البيانات وعرضها فورياً
+  db.ref("games").on("value", snapshot => {
+    const tbody = document.querySelector("#gamesTable tbody");
+    tbody.innerHTML = "";
+    snapshot.forEach(gameSnap => {
+      const game = gameSnap.val();
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${game.name}</td>
+        <td>${game.players ? Object.keys(game.players).length : 0}</td>
+        <td>${game.status}</td>
+        <td>
+          <button class="btn" onclick="openGame('${gameSnap.key}')">فتح</button>
+          <button class="btn" onclick="deleteGame('${gameSnap.key}')">حذف</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  });
+
+  db.ref("players").on("value", snapshot => {
+    const tbody = document.querySelector("#playersTable tbody");
+    tbody.innerHTML = "";
+    snapshot.forEach(playerSnap => {
+      const player = playerSnap.val();
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${player.name}</td>
+        <td>${player.totalScore}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  });
+
+  function openGame(gameId) {
+    alert("سيتم فتح الجيم: " + gameId + " (يتم بناء المنطق في الجزء الثاني)");
+  }
+
+  async function deleteGame(gameId) {
+    const pass = prompt("أدخل الرقم السري لحذف الجيم:");
+    if (pass === "1234") { // مثال للرقم السري
+      await db.ref("games/" + gameId).remove();
+      showToast("تم حذف الجيم!");
+    } else {
+      showToast("الرقم السري غير صحيح!");
+    }
+  }
+</script>
+</body>
+</html>
+<script>
+  // فتح الجيم وإدارة السكورات
+  async function openGame(gameId) {
+    const gameRef = db.ref("games/" + gameId);
+    const gameSnap = await gameRef.get();
+    if (!gameSnap.exists()) {
+      showToast("الجيم غير موجود!");
+      return;
+    }
+
+    const game = gameSnap.val();
+
+    // تحقق من الـ edit lock
+    const lockRef = db.ref("editLock/" + gameId);
+    const lockSnap = await lockRef.get();
+    if (lockSnap.exists() && lockSnap.val().locked) {
+      alert("الجيم محجوز حاليًا من قبل مستخدم آخر!");
+      return;
+    }
+
+    // تفعيل القفل
+    await lockRef.set({ locked: true, timestamp: Date.now() });
+
+    // بناء جدول السكورات ديناميكياً
+    const tbodyHTML = Object.keys(game.players || {}).map(pid => {
+      const player = game.players[pid] || { score: 0 };
+      return `
+        <tr data-pid="${pid}">
+          <td>${pid}</td>
+          <td><input type="number" value="${player.score || 0}" class="score-input"></td>
+        </tr>
+      `;
+    }).join("");
+
+    const modal = document.createElement("div");
+    modal.style.position = "fixed";
+    modal.style.top = "0"; modal.style.left = "0";
+    modal.style.width = "100%"; modal.style.height = "100%";
+    modal.style.background = "rgba(0,0,0,0.6)";
+    modal.style.display = "flex"; modal.style.justifyContent = "center"; modal.style.alignItems = "center";
+    modal.innerHTML = `
+      <div style="background:white;padding:20px;border-radius:10px;width:90%;max-width:600px;max-height:80%;overflow:auto;">
+        <h2>${game.name}</h2>
+        <table class="game-table">
+          <thead>
+            <tr><th>اللاعب</th><th>السكور</th></tr>
+          </thead>
+          <tbody>${tbodyHTML}</tbody>
+        </table>
+        <button class="btn" id="saveScoresBtn">حفظ السكورات</button>
+        <button class="btn" id="closeGameBtn">إغلاق الجيم</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // حفظ السكورات
+    modal.querySelector("#saveScoresBtn").onclick = async () => {
+      const updates = {};
+      modal.querySelectorAll(".score-input").forEach(input => {
+        const pid = input.closest("tr").dataset.pid;
+        updates["players/" + pid + "/score"] = Number(input.value);
+      });
+      await gameRef.update({ players: updates });
+      showToast("تم تحديث السكورات!");
+    };
+
+    // إغلاق الجيم وإزالة القفل
+    modal.querySelector("#closeGameBtn").onclick = async () => {
+      await lockRef.remove();
+      document.body.removeChild(modal);
+      showToast("تم إغلاق الجيم!");
+    };
+  }
+
+  // تحديث السكور فورياً لكل اللاعبين
+  db.ref("games").on("value", snapshot => {
+    snapshot.forEach(gameSnap => {
+      const game = gameSnap.val();
+      for (const pid in game.players) {
+        const playerScoreRef = db.ref("players/" + pid + "/totalScore");
+        playerScoreRef.set(game.players[pid].score || 0);
+      }
+    });
+  });
+
+  // إضافة خصائص احترافية إضافية
+  async function resetGameScores(gameId) {
+    const confirmReset = confirm("هل تريد مسح جميع السكورات؟");
+    if (!confirmReset) return;
+    const gameRef = db.ref("games/" + gameId + "/players");
+    const playersSnap = await gameRef.get();
+    const updates = {};
+    playersSnap.forEach(playerSnap => {
+      updates[playerSnap.key + "/score"] = 0;
+    });
+    await gameRef.update(updates);
+    showToast("تم مسح السكورات!");
+  }
+</script>
